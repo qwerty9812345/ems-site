@@ -6,6 +6,16 @@ window.__EMS_BOOTED = true;
 
 let CONFIG = loadConfig();
 
+/* Основной сайт живёт на Vercel и сам обслуживает /api. Зеркало на GitHub Pages
+   серверной части не имеет, поэтому обращается к API основного домена. */
+const API_BASE = (function () {
+  const h = String((typeof location !== 'undefined' && location.hostname) || '');
+  if (!h || h === 'localhost' || h === '127.0.0.1') return '';
+  if (h === 'ems.celleste.site' || h === 'ems-ip.pages.dev' || /\.vercel\.app$/.test(h)) return '';
+  return 'https://ems.celleste.site';
+})();
+function apiUrl(path) { return API_BASE + path; }
+
 const state = {
   form: 'menu',
   periods: { weekly: null, night: null },
@@ -429,7 +439,7 @@ let gsheetConfigured = false;
 
 async function fetchWebhookStatus() {
   try {
-    const res = await fetch('/api/webhook', { method: 'GET' });
+    const res = await fetch(apiUrl('/api/webhook'), { method: 'GET' });
     const j = await res.json().catch(() => null);
     webhookStatus = (j && Array.isArray(j.configured)) ? j.configured : [];
     gsheetConfigured = !!(j && j.gsheetConfigured);
@@ -1397,7 +1407,7 @@ async function postToProxy(slot, payload, file, sheet, opts) {
     body.sheet = sheet;
   }
   if (opts && opts.fileAfter) body.fileAfter = true;
-  const res = await fetch('/api/webhook', {
+  const res = await fetch(apiUrl('/api/webhook'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -3671,7 +3681,7 @@ function announceSync() {
 }
 
 function announceApi(body) {
-  return fetch('/api/announce', {
+  return fetch(apiUrl('/api/announce'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify(body)
@@ -4089,7 +4099,7 @@ async function renderPremium() {
   if (copy) copy.disabled = true;
   let data;
   try {
-    const res = await fetch('/api/premium', { method: 'GET', cache: 'no-store', headers: authHeader() });
+    const res = await fetch(apiUrl('/api/premium'), { method: 'GET', cache: 'no-store', headers: authHeader() });
     data = await res.json().catch(() => null);
   } catch (e) {
     data = null;
@@ -4137,7 +4147,7 @@ function authHeader() {
 /* Меняем пароль на короткоживущий токен (24 ч). Сам пароль в браузере не сохраняется. */
 async function acquireAuthToken(password) {
   try {
-    const res = await fetch('/api/auth', {
+    const res = await fetch(apiUrl('/api/auth'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password })
@@ -4179,7 +4189,7 @@ async function saveAdminSecret() {
 async function syncRemoteConfig() {
   let data;
   try {
-    const res = await fetch('/api/config', { cache: 'no-store' });
+    const res = await fetch(apiUrl('/api/config'), { cache: 'no-store' });
     if (!res || !res.ok) return false;
     data = await res.json();
   } catch (e) {
@@ -4193,7 +4203,7 @@ async function syncRemoteConfig() {
 
 async function publishRemoteConfig(config) {
   try {
-    const res = await fetch('/api/config', {
+    const res = await fetch(apiUrl('/api/config'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ config })
@@ -4208,7 +4218,7 @@ async function putWebhookConfig(slot, url) {
   if (!getAuthToken()) return { ok: false, code: 'no_secret' };
   let res;
   try {
-    res = await fetch('/api/webhook-config', {
+    res = await fetch(apiUrl('/api/webhook-config'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ slot, url })
