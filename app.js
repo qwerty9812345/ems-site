@@ -3380,7 +3380,8 @@ function renderAdminSend() {
 }
 
 /* ---- Анонс наборов: собрать сообщение и отправить в Discord ---- */
-const ANNOUNCE_PRESETS = ['13:00 – 13:40', '15:00 – 15:40', '17:00 – 17:40'];
+const ANNOUNCE_PRESETS_DEFAULT = ['13:00 – 13:40', '15:00 – 15:40', '17:00 – 17:40'];
+const ANNOUNCE_PRESETS_KEY = 'ems.announce.presets';
 const ANNOUNCE_LAST_KEY = 'ems.announce.last';
 const ANNOUNCE_DEFAULT_ROLES = ['745515563333189632', '745515556873961552', '745319702183804951'];
 const ANNOUNCE_ROLE_NAMES = {
@@ -3388,7 +3389,6 @@ const ANNOUNCE_ROLE_NAMES = {
   '745515556873961552': 'Стажёр ИП',
   '745319702183804951': 'Министерство Здравоохранения'
 };
-const ANNOUNCE_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 const ANNOUNCE_POLL_MAX = 10;
 
 let announceDate = '';
@@ -3399,6 +3399,7 @@ let announcePoll = false;
 let announceCalMonth = null;
 let announceDateOpen = false;
 let announceOutsideBound = false;
+let announcePresets = announceLoadPresets();
 
 function announcePad2(n) { return String(n).padStart(2, '0'); }
 
@@ -3491,25 +3492,209 @@ function announcePlural(n, forms) {
   return forms[2];
 }
 
-/* Подсказка под полем времени: показывает, что получится из введённого. */
-function announceUpdateTimeHint() {
-  const input = $('announceTimeInput');
-  const hint = $('announceTimeHint');
-  if (!input || !hint) return;
-  const raw = String(input.value || '').trim();
-  hint.classList.remove('ok', 'err');
-  if (!raw) {
-    hint.textContent = 'Введите 1400 — получится 14:00. Enter тоже добавляет.';
+/* ---------- Быстрый ввод времени ---------- */
+
+function announceMaskTime(value) {
+  const s = String(value || '').replace(/[^\d:]/g, '');
+  if (/^\d{4}$/.test(s)) return s.slice(0, 2) + ':' + s.slice(2);
+  return s;
+}
+
+function announceTimePair() {
+  return { from: $('announceTimeFrom'), to: $('announceTimeTo') };
+}
+
+let announceAutoAddTimer = null;
+
+function announceLoadPresets() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ANNOUNCE_PRESETS_KEY) || 'null');
+    if (Array.isArray(raw) && raw.length) {
+      const out = raw.map(v => announceParseTime(v)).filter(Boolean).slice(0, 6);
+      if (out.length) return out;
+    }
+  } catch (e) {}
+  return ANNOUNCE_PRESETS_DEFAULT.slice();
+}
+
+function announceSavePresets() {
+  try { localStorage.setItem(ANNOUNCE_PRESETS_KEY, JSON.stringify(announcePresets)); } catch (e) {}
+}
+
+function announceSyncPresetActive() {
+  document.querySelectorAll('.ann-preset-wrap').forEach(wrap => {
+    const btn = wrap.querySelector('.announce-preset');
+    wrap.classList.toggle('active', !!btn && announceTimes.indexOf(btn.dataset.range) >= 0);
+  });
+}
+
+function announceRenderPresets() {
+  const box = $('announcePresets');
+  if (!box) return;
+  box.innerHTML = announcePresets.map((p, i) => `
+    <span class="ann-preset-wrap" data-preset-wrap="${i}">
+      <button type="button" class="announce-preset" data-range="${escapeHtml(p)}">${escapeHtml(p)}</button>
+      <button type="button" class="ann-preset-edit" data-preset-edit="${i}" aria-label="Изменить время" title="Изменить время">✎</button>
+    </span>`).join('');
+  box.querySelectorAll('.announce-preset').forEach(btn => {
+    btn.onclick = () => {
+      const range = btn.dataset.range;
+      const at = announceTimes.indexOf(range);
+      if (at >= 0) announceTimes.splice(at, 1);
+      else announceTimes.push(range);
+      announceSync();
+    };
+  });
+  box.querySelectorAll('[data-preset-edit]').forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      announceEditPreset(Number(btn.dataset.presetEdit));
+    };
+  });
+  announceSyncPresetActive();
+}
+
+function announceEditPreset(index) {
+  const wrap = document.querySelector('[data-preset-wrap="' + index + '"]');
+  if (!wrap) return;
+  const parts = String(announcePresets[index] || '').split(' – ');
+  wrap.classList.remove('active');
+  wrap.classList.add('editing');
+  wrap.innerHTML = `
+    <span class="ann-preset-editor">
+      <input type="text" class="ann-input ann-preset-from" value="${escapeHtml(parts[0] || '')}" maxlength="5" inputmode="numeric" autocomplete="off" spellcheck="false">
+      <span class="ann-preset-dash">–</span>
+      <input type="text" class="ann-input ann-preset-to" value="${escapeHtml(parts[1] || '')}" maxlength="5" inputmode="numeric" autocomplete="off" spellcheck="false">
+      <button type="button" class="ann-preset-ok" data-preset-save="${index}" title="Сохранить">✓</button>
+      <button type="button" class="ann-preset-cancel" data-preset-cancel="${index}" title="Отмена">×</button>
+    </span>`;
+  const from = wrap.querySelector('.ann-preset-from');
+  const to = wrap.querySelector('.ann-preset-to');
+  const save = () => {
+    const a = announceParseTime(from.value);
+    const b = announceParseTime(to.value);
+    from.classList.toggle('err-field', !a);
+    to.classList.toggle('err-field', !b);
+    if (!a || !b) return;
+    announcePresets[index] = a + ' – ' + b;
+    announceSavePresets();
+    announceRenderPresets();
+  };
+  [from, to].forEach(inp => {
+    inp.oninput = () => { inp.value = announceMaskTime(inp.value); };
+    inp.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); save(); }
+      if (e.key === 'Escape') { e.preventDefault(); announceRenderPresets(); }
+    };
+  });
+  wrap.querySelector('[data-preset-save]').onclick = save;
+  wrap.querySelector('[data-preset-cancel]').onclick = () => announceRenderPresets();
+  from.focus();
+  from.select();
+}
+
+function announceScheduleAutoAdd() {
+  clearTimeout(announceAutoAddTimer);
+  const { from, to } = announceTimePair();
+  if (!from || !to) return;
+  if (!announceParseTime(from.value) || !announceParseTime(to.value)) return;
+  announceAutoAddTimer = setTimeout(() => announceCommitTime(), 450);
+}
+
+function announceCommitTime() {
+  const { from, to } = announceTimePair();
+  if (!from || !to) return false;
+  let rawFrom = String(from.value || '').trim();
+  let rawTo = String(to.value || '').trim();
+  if (!rawFrom) {
+    if (!rawTo) return false;
+    from.value = rawTo;
+    rawFrom = rawTo;
+    rawTo = '';
+    to.value = '';
+  }
+  const pFrom = announceParseTime(rawFrom);
+  const pTo = rawTo ? announceParseTime(rawTo) : '';
+  if (!pFrom || (rawTo && !pTo)) {
+    announceUpdateTimeHint();
+    return false;
+  }
+  const value = pTo ? pFrom + ' – ' + pTo : pFrom;
+  const out = announceAddTime(value, true);
+  if (!out.ok) return false;
+  from.value = '';
+  to.value = '';
+  from.focus();
+  announceUpdateTimeHint();
+  if (out.duplicate) {
+    const hint = $('announceTimeHint');
+    if (hint) {
+      hint.textContent = 'Этот набор уже в списке.';
+      hint.classList.remove('err');
+      hint.classList.add('ok');
+    }
+  }
+  return true;
+}
+
+function announceOnTimeInput(which) {
+  const { from, to } = announceTimePair();
+  const input = which === 'from' ? from : to;
+  if (!input) return;
+  const raw = String(input.value || '');
+  if (which === 'from' && /[-–—]|до/i.test(raw)) {
+    const parsed = announceParseTime(raw);
+    if (parsed && parsed.indexOf(' – ') >= 0) {
+      const parts = parsed.split(' – ');
+      from.value = parts[0];
+      to.value = parts[1];
+      announceUpdateTimeHint();
+      announceScheduleAutoAdd();
+      return;
+    }
+    announceUpdateTimeHint();
     return;
   }
-  const parsed = announceParseTime(raw);
-  if (parsed) {
-    hint.textContent = 'Получится: ' + parsed;
-    hint.classList.add('ok');
-  } else {
-    hint.textContent = 'Не понял время. Пример: 1400, 1400-1440, 14:00 – 14:40';
-    hint.classList.add('err');
+  input.value = announceMaskTime(raw);
+  announceUpdateTimeHint();
+  announceScheduleAutoAdd();
+}
+
+/* Подсказка под полями времени. */
+function announceUpdateTimeHint() {
+  const hint = $('announceTimeHint');
+  if (!hint) return;
+  const { from, to } = announceTimePair();
+  const rawFrom = from ? String(from.value || '').trim() : '';
+  const rawTo = to ? String(to.value || '').trim() : '';
+  hint.classList.remove('ok', 'err');
+  if (!rawFrom && !rawTo) {
+    hint.textContent = 'Введите 1400 и 1440 — добавится 14:00 – 14:40. Enter тоже работает.';
+    return;
   }
+  if (/[-–—]\s*$/.test(rawFrom)) {
+    hint.textContent = 'Теперь введите конец, например 1440.';
+    return;
+  }
+  const pFrom = announceParseTime(rawFrom);
+  const pTo = announceParseTime(rawTo);
+  if (!pFrom) {
+    hint.textContent = 'Начало: введите время, например 1400.';
+    hint.classList.add('err');
+    return;
+  }
+  if (!rawTo) {
+    hint.textContent = 'Получится одиночное время: ' + pFrom + '. Добавьте конец для диапазона.';
+    hint.classList.add('ok');
+    return;
+  }
+  if (!pTo) {
+    hint.textContent = 'Конец: введите время, например 1440.';
+    hint.classList.add('err');
+    return;
+  }
+  hint.textContent = 'Получится: ' + pFrom + ' – ' + pTo;
+  hint.classList.add('ok');
 }
 
 function announcePreviewHtml() {
@@ -3526,20 +3711,25 @@ function announcePreviewHtml() {
   ).join('');
 
   const footer = announcePoll
-    ? 'Ждем всех за 10 минут до начала.<br><b>Жмяк на опрос, на каких наборах будете</b>'
-    : 'Ждем всех за 10 минут до начала.<br><b>Жмяк реакции, на каких наборах будете</b>';
+    ? '<span>Ждем всех за 10 минут до начала.</span><b>Жмяк на опрос, на каких наборах будете</b>'
+    : '<span>Ждем всех за 10 минут до начала.</span>';
 
-  let extra = '';
+  let poll = '';
   if (announcePoll) {
     const answers = times.map(t => `
       <div class="ann-pv-answer">
+        <span class="ann-pv-check"></span>
         <span class="ann-pv-answer-text">${escapeHtml(t)}</span>
         <span class="ann-pv-answer-count">0</span>
       </div>`).join('');
-    extra = `
+    poll = `
       <div class="ann-pv-poll">
+        <div class="ann-pv-poll-head">
+          <span class="ann-pv-poll-title">Опрос</span>
+          <span class="ann-pv-poll-anon">анонимный</span>
+        </div>
         <div class="ann-pv-poll-q">На каких наборах будете?</div>
-        ${answers}
+        <div class="ann-pv-answers">${answers}</div>
         <div class="ann-pv-poll-meta">Можно выбрать несколько · 24 часа</div>
       </div>`;
   }
@@ -3556,9 +3746,10 @@ function announcePreviewHtml() {
       <div class="ann-pv-title">Наборы ${escapeHtml(date)} то будут в таком режиме:</div>
       ${announcePoll ? '' : `<div class="ann-pv-list">${items}</div>`}
       <div class="ann-pv-foot">${footer}</div>
-      ${extra}
+      ${poll}
     </div>`;
 }
+
 
 /* ---------- Календарь ---------- */
 
@@ -3654,9 +3845,7 @@ function announceSync() {
     hydrateIcons(preview);
   }
 
-  document.querySelectorAll('.announce-preset').forEach(b => {
-    b.classList.toggle('active', announceTimes.indexOf(b.dataset.range) >= 0);
-  });
+  announceSyncPresetActive();
 
   const dateBtn = $('announceDateBtn');
   if (dateBtn) {
@@ -3675,13 +3864,6 @@ function announceSync() {
       : 'наборов нет';
   }
 
-  const rolesCount = $('announceRolesCount');
-  if (rolesCount) {
-    rolesCount.textContent = announceRoles.length
-      ? announceRoles.length + ' ' + announcePlural(announceRoles.length, ['роль', 'роли', 'ролей'])
-      : 'нет';
-  }
-
   const sendBtn = $('announceSendBtn');
   if (sendBtn) sendBtn.disabled = !announceTimes.length;
   const delBtn = $('announceDeleteBtn');
@@ -3698,31 +3880,11 @@ function announceSync() {
     } else if (announcePoll) {
       pollNote.textContent = 'Сообщение уйдёт с опросом: можно отметить несколько наборов, голосование идёт 24 часа.';
     } else {
-      pollNote.textContent = 'Без опроса сообщение уйдёт обычным списком — голосовать будет негде.';
+      pollNote.textContent = 'Без опроса сообщение уйдёт обычным списком — собрать голоса не получится: реакции к сообщению добавить нельзя.';
     }
   }
   const pollLabel = $('announcePollLabel');
   if (pollLabel) pollLabel.classList.toggle('disabled', announceTimes.length > ANNOUNCE_POLL_MAX);
-
-  const rolesList = $('announceRolesList');
-  if (rolesList) {
-    rolesList.innerHTML = announceRoles.length
-      ? announceRoles.map((id, i) =>
-        '<span class="ann-role">' +
-          '<span class="ann-role-at">@</span>' +
-          '<span class="ann-role-name">' + escapeHtml(announceRoleName(id)) + '</span>' +
-          '<span class="ann-role-id">' + escapeHtml(id) + '</span>' +
-          '<button type="button" data-announce-role-remove="' + i + '" aria-label="Убрать">×</button>' +
-        '</span>'
-      ).join('')
-      : '<span class="ann-empty">Роли не загружены.</span>';
-    rolesList.querySelectorAll('[data-announce-role-remove]').forEach(btn => {
-      btn.onclick = () => {
-        announceRoles.splice(Number(btn.dataset.announceRoleRemove), 1);
-        announceSaveRoles();
-      };
-    });
-  }
 
   announceUpdateTimeHint();
 }
@@ -3736,21 +3898,10 @@ function announceApi(body) {
     .catch(e => ({ ok: false, code: 'network', detail: String((e && e.message) || e) }));
 }
 
-async function announceSaveRoles() {
-  const status = $('announceRolesStatus');
-  if (!announceRoles.length) {
-    if (status) status.textContent = 'Оставьте хотя бы одну роль.';
-    return;
-  }
-  if (status) status.textContent = 'Сохранение…';
-  const out = await announceApi({ action: 'settings', roles: announceRoles });
-  if (status) status.textContent = out.ok ? 'Роли сохранены.' : 'Не удалось сохранить: ' + (out.detail || out.code || 'ошибка');
-  announceSync();
-}
-
 function renderAdminAnnounce() {
   const root = $('announceRoot');
   if (!root) return;
+  clearTimeout(announceAutoAddTimer);
   if (!announceDate) announceDate = announceIsoTomorrow();
   const authed = !!getAuthToken();
 
@@ -3790,15 +3941,22 @@ function renderAdminAnnounce() {
             <div class="date-picker ann-date-pop" id="announceDatePop"></div>
           </div>
 
-          <div class="ann-sub">Быстрый выбор</div>
-          <div class="announce-presets">
-            ${ANNOUNCE_PRESETS.map(t => `<button type="button" class="announce-preset" data-range="${t}">${t}</button>`).join('')}
-          </div>
+          <div class="ann-sub">Быстрый выбор <span class="ann-sub-note">— ✎ меняет время</span></div>
+          <div class="announce-presets" id="announcePresets"></div>
 
-          <div class="ann-time-row">
-            <input type="text" id="announceTimeInput" class="ann-input" autocomplete="off" spellcheck="false"
-                   placeholder="1400-1440 или 1400">
-            <button type="button" class="a-btn sec" id="announceAddTime">Добавить</button>
+          <div class="ann-time-row ann-time-pair">
+            <label class="ann-time-field">
+              <span class="ann-time-label">Начало</span>
+              <input type="text" id="announceTimeFrom" class="ann-input" inputmode="numeric" maxlength="5"
+                     autocomplete="off" spellcheck="false" placeholder="1400">
+            </label>
+            <span class="ann-time-dash">–</span>
+            <label class="ann-time-field">
+              <span class="ann-time-label">Конец</span>
+              <input type="text" id="announceTimeTo" class="ann-input" inputmode="numeric" maxlength="5"
+                     autocomplete="off" spellcheck="false" placeholder="1440">
+            </label>
+            <button type="button" class="a-btn sec ann-time-add" id="announceAddTime">Добавить</button>
           </div>
           <div class="ann-time-hint" id="announceTimeHint"></div>
 
@@ -3823,21 +3981,6 @@ function renderAdminAnnounce() {
           </label>
           <div class="a-hint" id="announcePollNote" style="margin:10px 0 0"></div>
         </section>
-
-        <details class="ann-block ann-roles-block" id="announceRolesBlock">
-          <summary class="ann-block-head ann-summary">
-            <h4>Роли для пинга</h4>
-            <span class="ann-count" id="announceRolesCount"></span>
-            <span class="ann-chev">▾</span>
-          </summary>
-          <div class="ann-roles" id="announceRolesList"></div>
-          <div class="ann-time-row" style="margin-top:10px">
-            <input type="text" id="announceRoleInput" class="ann-input" autocomplete="off" spellcheck="false"
-                   placeholder="ID роли, например 745319702183804951">
-            <button type="button" class="a-btn sec" id="announceAddRole">Добавить</button>
-          </div>
-          <div id="announceRolesStatus" class="a-hint" style="margin:10px 0 0"></div>
-        </details>
 
       </div>
 
@@ -3910,52 +4053,39 @@ function renderAdminAnnounce() {
     };
   }
 
-  document.querySelectorAll('.announce-preset').forEach(btn => {
-    btn.onclick = () => {
-      const range = btn.dataset.range;
-      const at = announceTimes.indexOf(range);
-      if (at >= 0) announceTimes.splice(at, 1);
-      else announceTimes.push(range);
-      announceSync();
-    };
-  });
-
-  const timeInput = $('announceTimeInput');
+  const from = $('announceTimeFrom');
+  const to = $('announceTimeTo');
   const addTime = () => {
-    if (!timeInput) return;
-    const parsed = announceParseTime(timeInput.value);
-    if (parsed) timeInput.value = parsed;
-    const out = announceAddTime(timeInput.value, true);
-    if (!out.ok) {
-      timeInput.classList.add('err-field');
-      announceUpdateTimeHint();
-      setTimeout(() => timeInput.classList.remove('err-field'), 1200);
-      return;
-    }
-    timeInput.value = '';
-    timeInput.focus();
-    announceUpdateTimeHint();
-    if (out.duplicate) {
-      const hint = $('announceTimeHint');
-      if (hint) {
-        hint.textContent = 'Этот набор уже в списке.';
-        hint.classList.remove('err');
-        hint.classList.add('ok');
-      }
-    }
+    clearTimeout(announceAutoAddTimer);
+    announceCommitTime();
   };
   if ($('announceAddTime')) $('announceAddTime').onclick = addTime;
-  if (timeInput) {
-    timeInput.oninput = announceUpdateTimeHint;
-    timeInput.onblur = () => {
-      const parsed = announceParseTime(timeInput.value);
-      if (parsed) timeInput.value = parsed;
+  [[from, 'from'], [to, 'to']].forEach(pair => {
+    const input = pair[0];
+    const which = pair[1];
+    if (!input) return;
+    input.oninput = () => announceOnTimeInput(which);
+    input.onblur = () => {
+      const parsed = announceParseTime(input.value);
+      if (parsed && parsed.indexOf(' – ') < 0) input.value = parsed;
       announceUpdateTimeHint();
+      if (which === 'to') {
+        clearTimeout(announceAutoAddTimer);
+        announceCommitTime();
+      }
     };
-    timeInput.onkeydown = e => {
-      if (e.key === 'Enter') { e.preventDefault(); addTime(); }
+    input.onkeydown = e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(announceAutoAddTimer);
+        announceCommitTime();
+      }
+      if (e.key === 'Escape') {
+        input.value = '';
+        announceUpdateTimeHint();
+      }
     };
-  }
+  });
 
   if ($('announcePoll')) {
     $('announcePoll').onchange = () => {
@@ -3967,28 +4097,7 @@ function renderAdminAnnounce() {
   if ($('announceSendBtn')) $('announceSendBtn').onclick = announceSendNow;
   if ($('announceDeleteBtn')) $('announceDeleteBtn').onclick = announceDeleteLast;
 
-  const roleInput = $('announceRoleInput');
-  const addRole = () => {
-    if (!roleInput) return;
-    const id = String(roleInput.value || '').trim().replace(/\D/g, '');
-    const status = $('announceRolesStatus');
-    if (!/^\d{15,25}$/.test(id)) {
-      if (status) status.textContent = 'ID роли — это число из 15–25 цифр.';
-      roleInput.classList.add('err-field');
-      setTimeout(() => roleInput.classList.remove('err-field'), 1200);
-      return;
-    }
-    if (announceRoles.indexOf(id) === -1) announceRoles.push(id);
-    roleInput.value = '';
-    announceSaveRoles();
-  };
-  if ($('announceAddRole')) $('announceAddRole').onclick = addRole;
-  if (roleInput) {
-    roleInput.onkeydown = e => {
-      if (e.key === 'Enter') { e.preventDefault(); addRole(); }
-    };
-  }
-
+  announceRenderPresets();
   announceSync();
 }
 
