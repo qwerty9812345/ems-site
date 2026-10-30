@@ -4651,7 +4651,7 @@ function saveAdminConfig() {
     }
     hideLoading();
     applyConfig();
-    renderActions(state.form === 'menu' ? 'weekly' : state.form);
+    renderActions(['weekly', 'promotion', 'night'].indexOf(state.form) >= 0 ? state.form : 'weekly');
     updatePoints('weekly');
     updatePoints('promotion');
     updatePoints('night');
@@ -4978,7 +4978,7 @@ function init() {
   syncRemoteConfig().then(applied => {
     if (!applied) return;
     applyConfig();
-    renderActions(state.form === 'menu' ? 'weekly' : state.form);
+    renderActions(['weekly', 'promotion', 'night'].indexOf(state.form) >= 0 ? state.form : 'weekly');
     updatePoints('weekly');
     updatePoints('promotion');
     updatePoints('night');
