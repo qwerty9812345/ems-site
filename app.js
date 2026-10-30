@@ -3525,7 +3525,9 @@ function announcePreviewHtml() {
     `<div class="ann-pv-item"><span class="ann-pv-num">${i + 1}</span><span class="ann-pv-slot">${escapeHtml(t)}</span></div>`
   ).join('');
 
-  const footer = 'Ждем всех за 10 минут до начала.<br><b>Жмяк на опрос, на каких наборах будете</b>';
+  const footer = announcePoll
+    ? 'Ждем всех за 10 минут до начала.<br><b>Жмяк на опрос, на каких наборах будете</b>'
+    : 'Ждем всех за 10 минут до начала.<br><b>Жмяк реакции, на каких наборах будете</b>';
 
   let extra = '';
   if (announcePoll) {
