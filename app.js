@@ -3481,6 +3481,37 @@ function announceAddTime(raw, silent) {
 
 /* ---------- Предпросмотр в стиле Discord ---------- */
 
+function announcePlural(n, forms) {
+  const num = Math.abs(Number(n) || 0);
+  const tail = num % 100;
+  if (tail >= 11 && tail <= 14) return forms[2];
+  const last = tail % 10;
+  if (last === 1) return forms[0];
+  if (last >= 2 && last <= 4) return forms[1];
+  return forms[2];
+}
+
+/* Подсказка под полем времени: показывает, что получится из введённого. */
+function announceUpdateTimeHint() {
+  const input = $('announceTimeInput');
+  const hint = $('announceTimeHint');
+  if (!input || !hint) return;
+  const raw = String(input.value || '').trim();
+  hint.classList.remove('ok', 'err');
+  if (!raw) {
+    hint.textContent = 'Введите 1400 — получится 14:00. Enter тоже добавляет.';
+    return;
+  }
+  const parsed = announceParseTime(raw);
+  if (parsed) {
+    hint.textContent = 'Получится: ' + parsed;
+    hint.classList.add('ok');
+  } else {
+    hint.textContent = 'Не понял время. Пример: 1400, 1400-1440, 14:00 – 14:40';
+    hint.classList.add('err');
+  }
+}
+
 function announcePreviewHtml() {
   const date = announceDateLabel(announceDate) || 'дд.мм.гггг';
   const times = announceTimes.length ? announceTimes : ['13:00 – 13:40'];
@@ -3494,9 +3525,7 @@ function announcePreviewHtml() {
     `<div class="ann-pv-item"><span class="ann-pv-num">${i + 1}</span><span class="ann-pv-slot">${escapeHtml(t)}</span></div>`
   ).join('');
 
-  const footer = announcePoll
-    ? 'Ждем всех за 10 минут до начала.<br><b>Отметьте в опросе, на каких наборах будете</b>'
-    : 'Ждем всех за 10 минут до начала.<br><b>Жмяк реакции, на каких наборах будете</b>';
+  const footer = 'Ждем всех за 10 минут до начала.<br><b>Жмяк на опрос, на каких наборах будете</b>';
 
   let extra = '';
   if (announcePoll) {
@@ -3511,10 +3540,6 @@ function announcePreviewHtml() {
         ${answers}
         <div class="ann-pv-poll-meta">Можно выбрать несколько · 24 часа</div>
       </div>`;
-  } else {
-    const reacts = times.slice(0, ANNOUNCE_EMOJIS.length).map((t, i) =>
-      `<span class="ann-pv-react">${ANNOUNCE_EMOJIS[i]} <b>0</b></span>`).join('');
-    extra = `<div class="ann-pv-reacts">${reacts}</div>`;
   }
 
   return `
@@ -3527,7 +3552,7 @@ function announcePreviewHtml() {
     <div class="ann-pv-body">
       <div class="ann-pv-roles">${rolePills}</div>
       <div class="ann-pv-title">Наборы ${escapeHtml(date)} то будут в таком режиме:</div>
-      <div class="ann-pv-list">${items}</div>
+      ${announcePoll ? '' : `<div class="ann-pv-list">${items}</div>`}
       <div class="ann-pv-foot">${footer}</div>
       ${extra}
     </div>`;
@@ -3612,7 +3637,7 @@ function announceSync() {
           '<button type="button" data-announce-remove="' + i + '" aria-label="Убрать">×</button>' +
         '</span>'
       ).join('')
-      : '<span class="ann-empty">Пока пусто — выберите готовое время или впишите своё.</span>';
+      : '<span class="ann-empty">Пока пусто — нажмите готовое время или впишите своё.</span>';
     list.querySelectorAll('[data-announce-remove]').forEach(btn => {
       btn.onclick = () => {
         announceTimes.splice(Number(btn.dataset.announceRemove), 1);
@@ -3641,6 +3666,20 @@ function announceSync() {
     hydrateIcons(dateBtn);
   }
 
+  const count = $('announceCount');
+  if (count) {
+    count.textContent = announceTimes.length
+      ? announceTimes.length + ' ' + announcePlural(announceTimes.length, ['набор', 'набора', 'наборов'])
+      : 'наборов нет';
+  }
+
+  const rolesCount = $('announceRolesCount');
+  if (rolesCount) {
+    rolesCount.textContent = announceRoles.length
+      ? announceRoles.length + ' ' + announcePlural(announceRoles.length, ['роль', 'роли', 'ролей'])
+      : 'нет';
+  }
+
   const sendBtn = $('announceSendBtn');
   if (sendBtn) sendBtn.disabled = !announceTimes.length;
   const delBtn = $('announceDeleteBtn');
@@ -3651,10 +3690,14 @@ function announceSync() {
 
   const pollNote = $('announcePollNote');
   if (pollNote) {
-    pollNote.textContent = announceTimes.length > ANNOUNCE_POLL_MAX
-      ? 'В опрос Discord влезает максимум ' + ANNOUNCE_POLL_MAX + ' наборов — сейчас ' +
-        announceTimes.length + '. Уберите лишние или снимите галочку.'
-      : 'Без опроса реакции 1️⃣2️⃣3️⃣ добавляются в Discord вручную — вебхук не умеет их ставить.';
+    if (announceTimes.length > ANNOUNCE_POLL_MAX) {
+      pollNote.textContent = 'В опрос Discord влезает максимум ' + ANNOUNCE_POLL_MAX +
+        ' наборов — сейчас ' + announceTimes.length + '. Уберите лишние, чтобы отправить опросом.';
+    } else if (announcePoll) {
+      pollNote.textContent = 'Сообщение уйдёт с опросом: можно отметить несколько наборов, голосование идёт 24 часа.';
+    } else {
+      pollNote.textContent = 'Без опроса сообщение уйдёт обычным списком — голосовать будет негде.';
+    }
   }
   const pollLabel = $('announcePollLabel');
   if (pollLabel) pollLabel.classList.toggle('disabled', announceTimes.length > ANNOUNCE_POLL_MAX);
@@ -3678,6 +3721,8 @@ function announceSync() {
       };
     });
   }
+
+  announceUpdateTimeHint();
 }
 
 function announceApi(body) {
@@ -3702,8 +3747,8 @@ async function announceSaveRoles() {
 }
 
 function renderAdminAnnounce() {
-  const scroll = $('announceRoot');
-  if (!scroll) return;
+  const root = $('announceRoot');
+  if (!root) return;
   if (!announceDate) announceDate = announceIsoTomorrow();
   const authed = !!getAuthToken();
 
@@ -3716,79 +3761,96 @@ function renderAdminAnnounce() {
   }
 
   const authBlock = authed ? '' : `
-    <div class="a-section">
+    <div class="ann-login">
       <h4>Доступ</h4>
       <div class="a-hint">Раздел только для старшего состава. Введите секрет сервера — доступ действует 24 часа.</div>
-      <div class="ann-inline">
-        <input type="password" id="announceSecret" placeholder="секрет сервера" autocomplete="off">
+      <div class="ann-time-row">
+        <input type="password" id="announceSecret" class="ann-input" placeholder="секрет сервера" autocomplete="off">
         <button type="button" class="a-btn sec" id="announceLoginBtn">Подтвердить</button>
       </div>
-      <div id="announceLoginStatus" class="a-hint" style="margin-top:10px"></div>
+      <div id="announceLoginStatus" class="a-hint" style="margin:10px 0 0"></div>
     </div>`;
 
   const form = authed ? `
-    <div class="a-section">
-      <h4>Дата</h4>
-      <div class="ann-date-wrap">
-        <div class="ann-date-row">
-          <button type="button" class="ann-input ann-date-btn" id="announceDateBtn"></button>
-          <button type="button" class="a-btn sec" id="announceTodayBtn">Сегодня</button>
-          <button type="button" class="a-btn sec" id="announceTomorrowBtn">Завтра</button>
+    <div class="ann-layout">
+      <div class="ann-main">
+
+        <section class="ann-block">
+          <div class="ann-block-head">
+            <h4>Дата и время</h4>
+            <span class="ann-count" id="announceCount"></span>
+          </div>
+
+          <div class="ann-date-row">
+            <button type="button" class="ann-input ann-date-btn" id="announceDateBtn"></button>
+            <button type="button" class="ann-quick" id="announceTodayBtn">Сегодня</button>
+            <button type="button" class="ann-quick" id="announceTomorrowBtn">Завтра</button>
+            <div class="date-picker ann-date-pop" id="announceDatePop"></div>
+          </div>
+
+          <div class="ann-sub">Быстрый выбор</div>
+          <div class="announce-presets">
+            ${ANNOUNCE_PRESETS.map(t => `<button type="button" class="announce-preset" data-range="${t}">${t}</button>`).join('')}
+          </div>
+
+          <div class="ann-time-row">
+            <input type="text" id="announceTimeInput" class="ann-input" autocomplete="off" spellcheck="false"
+                   placeholder="1400-1440 или 1400">
+            <button type="button" class="a-btn sec" id="announceAddTime">Добавить</button>
+          </div>
+          <div class="ann-time-hint" id="announceTimeHint"></div>
+
+          <div class="announce-chips" id="announceTimesList"></div>
+        </section>
+
+        <section class="ann-block">
+          <div class="ann-block-head"><h4>Отправка</h4></div>
+          <div class="ann-send-row">
+            <button type="button" class="a-btn ann-send" id="announceSendBtn">Отправить в Discord</button>
+            <button type="button" class="a-btn danger" id="announceDeleteBtn">Удалить последнее</button>
+          </div>
+          <div id="announceStatus" class="a-hint" style="margin:12px 0 0"></div>
+        </section>
+
+        <section class="ann-block">
+          <div class="ann-block-head"><h4>Голосование</h4></div>
+          <label class="ann-switch" id="announcePollLabel">
+            <input type="checkbox" id="announcePoll">
+            <span class="ann-switch-track"><span class="ann-switch-dot"></span></span>
+            <span class="ann-switch-text">Собрать голоса опросом Discord</span>
+          </label>
+          <div class="a-hint" id="announcePollNote" style="margin:10px 0 0"></div>
+        </section>
+
+        <details class="ann-block ann-roles-block" id="announceRolesBlock">
+          <summary class="ann-block-head ann-summary">
+            <h4>Роли для пинга</h4>
+            <span class="ann-count" id="announceRolesCount"></span>
+            <span class="ann-chev">▾</span>
+          </summary>
+          <div class="ann-roles" id="announceRolesList"></div>
+          <div class="ann-time-row" style="margin-top:10px">
+            <input type="text" id="announceRoleInput" class="ann-input" autocomplete="off" spellcheck="false"
+                   placeholder="ID роли, например 745319702183804951">
+            <button type="button" class="a-btn sec" id="announceAddRole">Добавить</button>
+          </div>
+          <div id="announceRolesStatus" class="a-hint" style="margin:10px 0 0"></div>
+        </details>
+
+      </div>
+
+      <aside class="ann-side">
+        <div class="ann-block ann-preview-block">
+          <div class="ann-block-head">
+            <h4>Предпросмотр</h4>
+            <span class="ann-pv-badge">Discord</span>
+          </div>
+          <div class="ann-preview" id="announcePreview"></div>
         </div>
-        <div class="date-picker ann-date-pop" id="announceDatePop"></div>
-      </div>
-    </div>
-
-    <div class="a-section">
-      <h4>Время наборов</h4>
-      <div class="announce-presets">
-        ${ANNOUNCE_PRESETS.map(t => `<button type="button" class="announce-preset" data-range="${t}">${t}</button>`).join('')}
-      </div>
-      <div class="ann-inline">
-        <input type="text" id="announceTimeInput" class="ann-input" autocomplete="off" spellcheck="false"
-               placeholder="Впишите время: 13:00 – 13:40, 1300-1340 или 13:00">
-        <button type="button" class="a-btn sec" id="announceAddTime">Добавить</button>
-      </div>
-      <div class="a-hint" style="margin-top:8px">Enter — тоже добавить. Количество наборов не ограничено.</div>
-      <div class="announce-chips" id="announceTimesList"></div>
-    </div>
-
-    <div class="a-section">
-      <h4>Голосование</h4>
-      <label class="ann-switch" id="announcePollLabel">
-        <input type="checkbox" id="announcePoll">
-        <span class="ann-switch-track"><span class="ann-switch-dot"></span></span>
-        <span class="ann-switch-text">Собрать голоса опросом Discord</span>
-      </label>
-      <div class="a-hint" id="announcePollNote" style="margin-top:10px"></div>
-    </div>
-
-    <div class="a-section">
-      <h4>Как будет выглядеть</h4>
-      <div class="ann-preview" id="announcePreview"></div>
-    </div>
-
-    <div class="a-section">
-      <h4>Отправка</h4>
-      <div class="ann-inline">
-        <button type="button" class="a-btn" id="announceSendBtn">Отправить в Discord</button>
-        <button type="button" class="a-btn danger" id="announceDeleteBtn">Удалить последнее</button>
-      </div>
-      <div id="announceStatus" class="a-hint" style="margin-top:12px"></div>
-    </div>
-
-    <div class="a-section">
-      <h4>Роли для пинга</h4>
-      <div class="ann-roles" id="announceRolesList"></div>
-      <div class="ann-inline" style="margin-top:10px">
-        <input type="text" id="announceRoleInput" class="ann-input" autocomplete="off" spellcheck="false"
-               placeholder="ID роли, например 745319702183804951">
-        <button type="button" class="a-btn sec" id="announceAddRole">Добавить</button>
-      </div>
-      <div id="announceRolesStatus" class="a-hint" style="margin-top:10px"></div>
+      </aside>
     </div>` : '';
 
-  scroll.innerHTML = authBlock + form;
+  root.innerHTML = authBlock + form;
 
   const loginBtn = $('announceLoginBtn');
   if (loginBtn) {
@@ -3859,18 +3921,35 @@ function renderAdminAnnounce() {
   const timeInput = $('announceTimeInput');
   const addTime = () => {
     if (!timeInput) return;
+    const parsed = announceParseTime(timeInput.value);
+    if (parsed) timeInput.value = parsed;
     const out = announceAddTime(timeInput.value, true);
     if (!out.ok) {
       timeInput.classList.add('err-field');
-      timeInput.placeholder = 'Не понял время. Пример: 13:00 – 13:40';
+      announceUpdateTimeHint();
       setTimeout(() => timeInput.classList.remove('err-field'), 1200);
       return;
     }
     timeInput.value = '';
     timeInput.focus();
+    announceUpdateTimeHint();
+    if (out.duplicate) {
+      const hint = $('announceTimeHint');
+      if (hint) {
+        hint.textContent = 'Этот набор уже в списке.';
+        hint.classList.remove('err');
+        hint.classList.add('ok');
+      }
+    }
   };
   if ($('announceAddTime')) $('announceAddTime').onclick = addTime;
   if (timeInput) {
+    timeInput.oninput = announceUpdateTimeHint;
+    timeInput.onblur = () => {
+      const parsed = announceParseTime(timeInput.value);
+      if (parsed) timeInput.value = parsed;
+      announceUpdateTimeHint();
+    };
     timeInput.onkeydown = e => {
       if (e.key === 'Enter') { e.preventDefault(); addTime(); }
     };
@@ -3910,6 +3989,7 @@ function renderAdminAnnounce() {
 
   announceSync();
 }
+
 
 async function announceSendNow() {
   const status = $('announceStatus');
