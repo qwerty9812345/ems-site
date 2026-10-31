@@ -9,11 +9,18 @@ let CONFIG = loadConfig();
 /* Основной сайт живёт на Vercel и сам обслуживает /api. Зеркало на GitHub Pages
    серверной части не имеет, поэтому обращается к API основного домена.
    Если провайдер режет один адрес, пробуем резервный адрес того же проекта. */
+/* Релей в Yandex Cloud (папка relay/yandex) — для сетей, где режут Vercel.
+   Пока адрес не вписан, резервного адреса нет. */
+const API_RELAY = '';
+
 const API_HOSTS = (function () {
   const h = String((typeof location !== 'undefined' && location.hostname) || '');
   if (!h || h === 'localhost' || h === '127.0.0.1') return [''];
   if (h === 'ems.celleste.site' || h === 'ems-ip.pages.dev' || /\.vercel\.app$/.test(h)) return [''];
-  return ['https://ems.celleste.site', 'https://gta5rpip.vercel.app'];
+  const hosts = ['https://ems.celleste.site'];
+  if (API_RELAY) hosts.push(API_RELAY);
+  hosts.push('https://gta5rpip.vercel.app');
+  return hosts;
 })();
 
 let apiHostIndex = 0;
