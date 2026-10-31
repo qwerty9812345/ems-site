@@ -7,14 +7,56 @@ window.__EMS_BOOTED = true;
 let CONFIG = loadConfig();
 
 /* Основной сайт живёт на Vercel и сам обслуживает /api. Зеркало на GitHub Pages
-   серверной части не имеет, поэтому обращается к API основного домена. */
-const API_BASE = (function () {
+   серверной части не имеет, поэтому обращается к API основного домена.
+   Если провайдер режет один адрес, пробуем резервный адрес того же проекта. */
+const API_HOSTS = (function () {
   const h = String((typeof location !== 'undefined' && location.hostname) || '');
-  if (!h || h === 'localhost' || h === '127.0.0.1') return '';
-  if (h === 'ems.celleste.site' || h === 'ems-ip.pages.dev' || /\.vercel\.app$/.test(h)) return '';
-  return 'https://ems.celleste.site';
+  if (!h || h === 'localhost' || h === '127.0.0.1') return [''];
+  if (h === 'ems.celleste.site' || h === 'ems-ip.pages.dev' || /\.vercel\.app$/.test(h)) return [''];
+  return ['https://ems.celleste.site', 'https://gta5rpip.vercel.app'];
 })();
-function apiUrl(path) { return API_BASE + path; }
+
+let apiHostIndex = 0;
+try {
+  const saved = Number(localStorage.getItem('ems.api.host') || '0');
+  if (saved >= 0 && saved < API_HOSTS.length) apiHostIndex = saved;
+} catch (e) {}
+
+function apiUrl(path) { return API_HOSTS[apiHostIndex] + path; }
+
+/* Выбираем адрес API, который реально отвечает. Проверка идёт дешёвым
+   GET /api/health, поэтому сама отправка отчёта не дублируется. */
+let apiHostReady = null;
+function ensureApiHost() {
+  if (API_HOSTS.length < 2) return Promise.resolve(apiHostIndex);
+  if (apiHostReady) return apiHostReady;
+  apiHostReady = (async () => {
+    for (let i = 0; i < API_HOSTS.length; i++) {
+      const idx = (apiHostIndex + i) % API_HOSTS.length;
+      try {
+        const ctl = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+          ? AbortSignal.timeout(6000) : undefined;
+        const res = await fetch(API_HOSTS[idx] + '/api/health', { cache: 'no-store', signal: ctl });
+        if (res.ok) {
+          apiHostIndex = idx;
+          try { localStorage.setItem('ems.api.host', String(idx)); } catch (e) {}
+          return idx;
+        }
+      } catch (e) { /* пробуем следующий адрес */ }
+    }
+    apiHostReady = null; /* не запоминаем неудачу: в следующий раз проверим заново */
+    return apiHostIndex;
+  })();
+  return apiHostReady;
+}
+
+function resetApiHost() { apiHostReady = null; }
+
+/* Любой запрос к API сначала дожидается выбора рабочего адреса. */
+async function apiFetch(path, options) {
+  await ensureApiHost();
+  return fetch(apiUrl(path), options);
+}
 
 const state = {
   form: 'menu',
@@ -286,7 +328,10 @@ function showFormError(formType, message) {
   box.classList.add('show');
   if (box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
   clearTimeout(box._t);
-  box._t = setTimeout(() => box.classList.remove('show'), 7000);
+  /* Блок с кнопкой «Повторить отправку» не прячем — иначе не успеть нажать. */
+  if (!/err-retry/.test(message)) {
+    box._t = setTimeout(() => box.classList.remove('show'), 7000);
+  }
 }
 
 /* ================= Применение конфигурации ================= */
@@ -440,7 +485,7 @@ let gsheetConfigured = false;
 
 async function fetchWebhookStatus() {
   try {
-    const res = await fetch(apiUrl('/api/webhook'), { method: 'GET' });
+    const res = await apiFetch('/api/webhook', { method: 'GET' });
     const j = await res.json().catch(() => null);
     webhookStatus = (j && Array.isArray(j.configured)) ? j.configured : [];
     gsheetConfigured = !!(j && j.gsheetConfigured);
@@ -1352,6 +1397,7 @@ async function sendReport(report, formType) {
   try {
     const outcome = await postToProxy(slot, payload, file, sheet, null);
     if (outcome.ok) {
+      lastSendAttempt = null;
       markSent(report.id);
       hideLoading();
       const sheetNote = sheet && outcome.sheet && outcome.sheet.ok === false
@@ -1370,13 +1416,33 @@ async function sendReport(report, formType) {
     throw new Error(outcome.detail || ('Ошибка отправки (Discord ' + (outcome.status || '') + ')'));
   } catch (e) {
     hideLoading();
-    showFormError(formType, 'Не удалось отправить отчёт: ' + escapeHtml(e.message || e) + '<br>Отчёт сохранён локально.');
-    toast('Ошибка отправки', String(e.message || e), 'error');
+    const raw = String((e && e.message) || e);
+    const network = /timeout|timed out|abort|failed to fetch|networkerror|load failed|fetch/i.test(raw);
+    lastSendAttempt = { report, formType };
+    showFormError(
+      formType,
+      'Не удалось отправить отчёт: ' +
+        (network ? 'сервер не ответил за 45 секунд.' : escapeHtml(raw)) +
+        '<br>Отчёт сохранён локально.' +
+        '<br><button type="button" class="err-retry" onclick="retryLastSend()">Повторить отправку</button>'
+    );
+    toast('Ошибка отправки', network ? 'Сервер не ответил — похоже, сеть блокирует запрос.' : raw, 'error');
     markSent(report.id, false, true);
   } finally {
     btn.disabled = false;
     btn.innerHTML = original;
   }
+}
+
+/* Последняя неудачная отправка — чтобы можно было повторить одной кнопкой. */
+let lastSendAttempt = null;
+
+function retryLastSend() {
+  if (!lastSendAttempt) return;
+  const { report, formType } = lastSendAttempt;
+  const box = $('errorMsg' + formPrefix(formType));
+  if (box) box.classList.remove('show');
+  sendReport(report, formType);
 }
 
 function markSent(id, sent = true, failed = false) {
@@ -1408,12 +1474,19 @@ async function postToProxy(slot, payload, file, sheet, opts) {
     body.sheet = sheet;
   }
   if (opts && opts.fileAfter) body.fileAfter = true;
-  const res = await fetch(apiUrl('/api/webhook'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(25000) : undefined
-  });
+  let res;
+  try {
+    res = await apiFetch('/api/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(45000) : undefined
+    });
+  } catch (e) {
+    /* Сеть подвела — в следующий раз заново выберем рабочий адрес API. */
+    resetApiHost();
+    throw e;
+  }
   return res.json().catch(() => ({ ok: false, code: 'error', detail: 'Некорректный ответ прокси' }));
 }
 
@@ -1779,7 +1852,9 @@ function compressImage(file, name) {
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const MAX = 1920;
+        /* 1400 px и q=0.8: скриншот остаётся читаемым, а вес запроса
+           падает в разы — на слабом канале отправка успевает пройти. */
+        const MAX = 1400;
         let { width, height } = img;
         if (width > MAX || height > MAX) {
           const k = Math.min(MAX / width, MAX / height);
@@ -1790,7 +1865,7 @@ function compressImage(file, name) {
         canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.85), name: name || UNFIT_PHOTO_NAME, type: 'image/jpeg' });
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.8), name: name || UNFIT_PHOTO_NAME, type: 'image/jpeg' });
       };
       img.onerror = () => resolve(null);
       img.src = reader.result;
@@ -3891,7 +3966,7 @@ function announceSync() {
 }
 
 function announceApi(body) {
-  return fetch(apiUrl('/api/announce'), {
+  return apiFetch('/api/announce', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify(body)
@@ -4296,7 +4371,7 @@ async function renderPremium() {
   if (copy) copy.disabled = true;
   let data;
   try {
-    const res = await fetch(apiUrl('/api/premium'), { method: 'GET', cache: 'no-store', headers: authHeader() });
+    const res = await apiFetch('/api/premium', { method: 'GET', cache: 'no-store', headers: authHeader() });
     data = await res.json().catch(() => null);
   } catch (e) {
     data = null;
@@ -4344,7 +4419,7 @@ function authHeader() {
 /* Меняем пароль на короткоживущий токен (24 ч). Сам пароль в браузере не сохраняется. */
 async function acquireAuthToken(password) {
   try {
-    const res = await fetch(apiUrl('/api/auth'), {
+    const res = await apiFetch('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password })
@@ -4386,7 +4461,7 @@ async function saveAdminSecret() {
 async function syncRemoteConfig() {
   let data;
   try {
-    const res = await fetch(apiUrl('/api/config'), { cache: 'no-store' });
+    const res = await apiFetch('/api/config', { cache: 'no-store' });
     if (!res || !res.ok) return false;
     data = await res.json();
   } catch (e) {
@@ -4400,7 +4475,7 @@ async function syncRemoteConfig() {
 
 async function publishRemoteConfig(config) {
   try {
-    const res = await fetch(apiUrl('/api/config'), {
+    const res = await apiFetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ config })
@@ -4415,7 +4490,7 @@ async function putWebhookConfig(slot, url) {
   if (!getAuthToken()) return { ok: false, code: 'no_secret' };
   let res;
   try {
-    res = await fetch(apiUrl('/api/webhook-config'), {
+    res = await apiFetch('/api/webhook-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ slot, url })
@@ -5179,6 +5254,8 @@ window.addEventListener('unhandledrejection', e => {
 });
 
 (function boot() {
+  /* Заранее выбираем рабочий адрес API, чтобы первые запросы не висели. */
+  try { ensureApiHost(); } catch (e) {}
   try {
     init();
   } catch (err) {

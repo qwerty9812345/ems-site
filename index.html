@@ -1557,6 +1557,13 @@ a.ph-link:hover {
   backdrop-filter: blur(14px);
 }
 .form-error.show { display: block; animation: rise .25s ease both; }
+.form-error .err-retry {
+  margin-top: 12px; font-family: inherit; font-size: 13px; font-weight: 800;
+  cursor: pointer; padding: 9px 16px; border-radius: 11px;
+  background: rgba(255, 97, 89, .16); border: 1px solid rgba(255, 97, 89, .5);
+  color: #ffd9d6; transition: .2s;
+}
+.form-error .err-retry:hover { background: var(--danger); color: #fff; border-color: transparent; }
 .inline-error { color: var(--danger); font-size: 13px; margin-top: 10px; }
 
 .toast-stack {
@@ -3478,6 +3485,6 @@ function clearReports() {
 }
     </script>
     <!-- INLINE_SCRIPTS_END -->
-  <script src="app.js?v=450bc399" async></script>
+  <script src="app.js?v=e0151ff9" async></script>
 </body>
 </html>
