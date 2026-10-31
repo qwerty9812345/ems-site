@@ -9,14 +9,19 @@ let CONFIG = loadConfig();
 /* Основной сайт живёт на Vercel и сам обслуживает /api. Зеркало на GitHub Pages
    серверной части не имеет, поэтому обращается к API основного домена.
    Если провайдер режет один адрес, пробуем резервный адрес того же проекта. */
-/* Релей в Yandex Cloud (папка relay/yandex) — для сетей, где режут Vercel.
-   Пока адрес не вписан, резервного адреса нет. */
-const API_RELAY = '';
+/* Релей на Deno Deploy (папка relay/deno) — для сетей, где режут Vercel.
+   Принимает запрос и пересылает его в наш API, секретов в нём нет. */
+const API_RELAY = 'https://ems-relay.qwerty9812345.deno.net';
 
 const API_HOSTS = (function () {
   const h = String((typeof location !== 'undefined' && location.hostname) || '');
   if (!h || h === 'localhost' || h === '127.0.0.1') return [''];
-  if (h === 'ems.celleste.site' || h === 'ems-ip.pages.dev' || /\.vercel\.app$/.test(h)) return [''];
+  const sameOrigin = h === 'ems.celleste.site' || h === 'ems-ip.pages.dev' || /\.vercel\.app$/.test(h);
+  if (sameOrigin) {
+    /* Основной сайт сам обслуживает /api; релей — запасной путь,
+       если провайдер не пускает POST. */
+    return API_RELAY ? ['', API_RELAY] : [''];
+  }
   const hosts = ['https://ems.celleste.site'];
   if (API_RELAY) hosts.push(API_RELAY);
   hosts.push('https://gta5rpip.vercel.app');
@@ -1481,18 +1486,36 @@ async function postToProxy(slot, payload, file, sheet, opts) {
     body.sheet = sheet;
   }
   if (opts && opts.fileAfter) body.fileAfter = true;
+
+  const send = () => apiFetch('/api/webhook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(45000) : undefined
+  });
+
   let res;
   try {
-    res = await apiFetch('/api/webhook', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(45000) : undefined
-    });
+    res = await send();
   } catch (e) {
-    /* Сеть подвела — в следующий раз заново выберем рабочий адрес API. */
-    resetApiHost();
-    throw e;
+    /* Сеть не пустила запрос. Если есть релей — сразу повторяем через него,
+       пользователю ничего нажимать не нужно. */
+    const relayIdx = API_RELAY ? API_HOSTS.indexOf(API_RELAY) : -1;
+    if (relayIdx < 0 || apiHostIndex === relayIdx) {
+      resetApiHost();
+      throw e;
+    }
+    const prev = apiHostIndex;
+    apiHostIndex = relayIdx;
+    apiHostReady = Promise.resolve(relayIdx);
+    try {
+      res = await send();
+      try { localStorage.setItem('ems.api.host', String(relayIdx)); } catch (err) {}
+    } catch (e2) {
+      apiHostIndex = prev;
+      resetApiHost();
+      throw e2;
+    }
   }
   return res.json().catch(() => ({ ok: false, code: 'error', detail: 'Некорректный ответ прокси' }));
 }
