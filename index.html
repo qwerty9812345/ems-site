@@ -1800,10 +1800,10 @@ a.ph-link:hover {
 .announce-preset:hover { color: var(--text); }
 .ann-preset-edit {
   border: none; border-left: 1px solid var(--line); background: transparent;
-  color: var(--muted-2); cursor: pointer; padding: 0 8px; font-size: 13px;
-  font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
-  transition: .2s;
+  color: var(--muted-2); cursor: pointer; padding: 0 8px;
+  display: inline-flex; align-items: center; transition: .2s;
 }
+.ann-preset-edit svg { width: 12px; height: 12px; stroke-width: 2; }
 .ann-preset-edit:hover { color: var(--accent); background: rgba(255, 181, 77, .08); }
 .ann-preset-wrap.active {
   background: var(--lime-grad); border-color: transparent;
@@ -3478,6 +3478,6 @@ function clearReports() {
 }
     </script>
     <!-- INLINE_SCRIPTS_END -->
-  <script src="app.js?v=6e736c05" async></script>
+  <script src="app.js?v=450bc399" async></script>
 </body>
 </html>

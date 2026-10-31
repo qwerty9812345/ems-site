@@ -101,7 +101,8 @@ const ICONS = {
   plus: '<path d="M12 5.2v13.6"/><path d="M5.2 12h13.6"/>',
   back: '<path d="M19 12H5.4"/><path d="m11.2 6-6 6 6 6"/>',
   grip: '<circle cx="9" cy="5" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="19" r="1.6"/>',
-  clip: '<rect x="5.4" y="4.2" width="13.2" height="16.8" rx="2.4"/><path d="M9 3.6h6"/><path d="M9 2.6h6"/><path d="m9.4 12.2 1.9 1.9 3.4-3.6"/>'
+  clip: '<rect x="5.4" y="4.2" width="13.2" height="16.8" rx="2.4"/><path d="M9 3.6h6"/><path d="M9 2.6h6"/><path d="m9.4 12.2 1.9 1.9 3.4-3.6"/>',
+  pencil: '<path d="M4.4 19.6h4.1L20 8.1a2.1 2.1 0 0 0-3-3L5.5 16.6z"/><path d="M14.8 5.3l3 3"/>'
 };
 
 function svgIcon(name, cls) {
@@ -3534,7 +3535,7 @@ function announceRenderPresets() {
   box.innerHTML = announcePresets.map((p, i) => `
     <span class="ann-preset-wrap" data-preset-wrap="${i}">
       <button type="button" class="announce-preset" data-range="${escapeHtml(p)}">${escapeHtml(p)}</button>
-      <button type="button" class="ann-preset-edit" data-preset-edit="${i}" aria-label="Изменить время" title="Изменить время">✎</button>
+      <button type="button" class="ann-preset-edit" data-preset-edit="${i}" aria-label="Изменить время" title="Изменить время">${svgIcon('pencil')}</button>
     </span>`).join('');
   box.querySelectorAll('.announce-preset').forEach(btn => {
     btn.onclick = () => {
@@ -3906,10 +3907,15 @@ function renderAdminAnnounce() {
   const authed = !!getAuthToken();
 
   if (authed && !announceRolesLoaded) {
+    /* Роли подтягиваем один раз и не перерисовываем форму: иначе запоздавший
+       ответ сервера стирал бы уже начатый ввод времени. */
+    announceRolesLoaded = true;
     announceApi({ action: 'status' }).then(out => {
-      if (out && out.ok && Array.isArray(out.roles) && out.roles.length) announceRoles = out.roles;
-      announceRolesLoaded = true;
-      renderAdminAnnounce();
+      if (!out || !out.ok || !Array.isArray(out.roles) || !out.roles.length) return;
+      const next = out.roles.map(String);
+      if (next.join(',') === announceRoles.join(',')) return;
+      announceRoles = next;
+      announceSync();
     });
   }
 
@@ -3941,7 +3947,7 @@ function renderAdminAnnounce() {
             <div class="date-picker ann-date-pop" id="announceDatePop"></div>
           </div>
 
-          <div class="ann-sub">Быстрый выбор <span class="ann-sub-note">— ✎ меняет время</span></div>
+          <div class="ann-sub">Быстрый выбор <span class="ann-sub-note">— карандаш меняет время</span></div>
           <div class="announce-presets" id="announcePresets"></div>
 
           <div class="ann-time-row ann-time-pair">
