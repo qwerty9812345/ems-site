@@ -2562,6 +2562,14 @@ body.gate-locked { overflow: hidden; }
           <span class="menu-card-desc">Готовый текст для Discord по сотрудникам с галочками «Еженеделька» и «Премия»</span>
           <span class="menu-card-cta">Открыть <span class="arrow">→</span></span>
         </button>
+
+        <button class="menu-card alt8 hidden" id="selectAnnounce" type="button">
+          <span class="menu-idx">09</span>
+          <span class="menu-icon" id="menuIconAnnounce" data-icon="send"></span>
+          <span class="menu-card-title" id="menuTitleAnnounce">Наборы</span>
+          <span class="menu-card-desc">Анонс наборов в Discord: пинги ролей, дата и время — без ручного набора текста</span>
+          <span class="menu-card-cta">Открыть <span class="arrow">→</span></span>
+        </button>
       </div>
 
     </section>
@@ -2996,6 +3004,22 @@ body.gate-locked { overflow: hidden; }
         </div>
       </div>
     </section>
+
+    <!-- ================= НАБОРЫ ================= -->
+    <section id="announceForm" class="screen hidden">
+      <div class="top-row">
+        <button class="back-btn" id="backToMenuAnnounce" data-icon="back"><span>Назад</span></button>
+      </div>
+
+      <div class="page-head">
+        <h2>Наборы</h2>
+        <p class="page-sub">Анонс наборов в Discord: выберите дату и время — текст соберётся сам. Пинги и оформление меняются в админке (⚙).</p>
+      </div>
+
+      <div class="card">
+        <div id="announceRoot"></div>
+      </div>
+    </section>
   </main>
 
   <!-- ================= МОДАЛКА ВЫБОРА ПУНКТА ================= -->
@@ -3062,7 +3086,7 @@ body.gate-locked { overflow: hidden; }
             <div id="tabPremium" class="admin-tab-content"><div class="admin-scroll"></div></div>
             <div id="tabSend" class="admin-tab-content"><div class="admin-scroll"></div></div>
             <div id="tabReports" class="admin-tab-content"><div class="admin-scroll"></div></div>
-            <div id="tabAnnounce" class="admin-tab-content"><div class="admin-scroll"><div id="announceRoot"></div></div></div>
+            <div id="tabAnnounce" class="admin-tab-content"><div class="admin-scroll"><div id="announceSettingsRoot"></div></div></div>
             <div id="tabData" class="admin-tab-content"><div class="admin-scroll"></div></div>
           </div>
 
@@ -3482,6 +3506,6 @@ function clearReports() {
 }
     </script>
     <!-- INLINE_SCRIPTS_END -->
-  <script src="app.js?v=dc485d5f" async></script>
+  <script src="app.js?v=0d659b1d" async></script>
 </body>
 </html>

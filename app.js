@@ -397,6 +397,9 @@ function updateMenuVisibility() {
   if (u) u.classList.toggle('hidden', !unlocked);
   const p = $('selectPremium');
   if (p) p.classList.toggle('hidden', !adminUnlocked);
+  /* Блок 09 «Наборы» — только старший состав; редактирование текста и ролей — в админке. */
+  const a = $('selectAnnounce');
+  if (a) a.classList.toggle('hidden', !adminUnlocked);
 }
 
 function renderRules(id, rules) {
@@ -519,12 +522,14 @@ function showScreen(name) {
   $('internForm').classList.toggle('hidden', name !== 'intern');
   $('unfitForm').classList.toggle('hidden', name !== 'unfit');
   $('premiumForm').classList.toggle('hidden', name !== 'premium');
+  if ($('announceForm')) $('announceForm').classList.toggle('hidden', name !== 'announce');
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'weekly') { setCurrentWeek('weekly'); renderCalendar('weekly'); }
   if (name === 'night') { setCurrentWeek('night'); renderCalendar('night'); }
   if (name === 'promotion') toggleConditionalFields();
   if (name === 'quiz') renderQuiz();
   if (name === 'premium') renderPremium();
+  if (name === 'announce') renderAdminAnnounce();
 }
 
 /* ================= Календарь ================= */
@@ -2409,8 +2414,8 @@ function updateQuizTotal() {
 function switchTab(tabId) {
   document.querySelectorAll('.admin-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
   document.querySelectorAll('.admin-tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab' + tabId.charAt(0).toUpperCase() + tabId.slice(1)));
-  /* Блок 09 живёт только в админке: рисуем форму при первом открытии вкладки. */
-  if (tabId === 'announce') renderAdminAnnounce();
+  /* На вкладке «Наборы» — только настройки анонса, сам блок 09 остался в меню. */
+  if (tabId === 'announce') renderAnnounceSettings();
   /* На вкладке «Наборы» своя кнопка сохранения — общий «Сохранить изменения» не нужен. */
   const saveBtn = $('saveAdminBtn');
   if (saveBtn) saveBtn.classList.toggle('hidden', tabId === 'announce');
@@ -2456,7 +2461,7 @@ function renderAdminEditor() {
 
   /* Если админка открыта на вкладке «Наборы», обновляем и её. */
   const activeTab = document.querySelector('.admin-tab.active');
-  if (activeTab && activeTab.dataset.tab === 'announce') renderAdminAnnounce();
+  if (activeTab && activeTab.dataset.tab === 'announce') renderAnnounceSettings();
 }
 
 /* --- пункты --- */
@@ -3979,6 +3984,11 @@ function announceSync() {
     preview.innerHTML = announcePreviewHtml();
     hydrateIcons(preview);
   }
+  const settingsPreview = $('announceSettingsPreview');
+  if (settingsPreview) {
+    settingsPreview.innerHTML = announcePreviewHtml();
+    hydrateIcons(settingsPreview);
+  }
 
   announceSyncPresetActive();
 
@@ -4126,30 +4136,37 @@ async function announceSaveSettings() {
   }
 }
 
+/* Настройки анонса грузим один раз: их читают и блок 09, и админка. */
+let announceRolesLoading = false;
+
+function announceEnsureSettings() {
+  if (announceRolesLoaded || announceRolesLoading || !getAuthToken()) return;
+  announceRolesLoading = true;
+  announceApi({ action: 'status' }).then(out => {
+    announceRolesLoading = false;
+    if (!out || !out.ok) return;
+    announceRolesLoaded = true;
+    if (Array.isArray(out.roles) && out.roles.length) {
+      const next = out.roles.map(String);
+      if (next.join(',') !== announceRoles.join(',')) announceRoles = next;
+    }
+    if (typeof out.header === 'string' && out.header.trim()) announceHeader = out.header.trim();
+    if (typeof out.footer === 'string') announceFooter = out.footer.trim();
+    announceFillSettingsInputs();
+    announceRenderRoleChips();
+    announceSync();
+    const pv = $('announceSettingsPreview');
+    if (pv) { pv.innerHTML = announcePreviewHtml(); hydrateIcons(pv); }
+  });
+}
+
 function renderAdminAnnounce() {
   const root = $('announceRoot');
   if (!root) return;
   clearTimeout(announceAutoAddTimer);
   if (!announceDate) announceDate = announceIsoTomorrow();
   const authed = !!getAuthToken();
-
-  if (authed && !announceRolesLoaded) {
-    /* Роли и текст подтягиваем один раз и не перерисовываем форму: иначе
-       запоздавший ответ сервера стирал бы уже начатый ввод времени. */
-    announceRolesLoaded = true;
-    announceApi({ action: 'status' }).then(out => {
-      if (!out || !out.ok) return;
-      if (Array.isArray(out.roles) && out.roles.length) {
-        const next = out.roles.map(String);
-        if (next.join(',') !== announceRoles.join(',')) announceRoles = next;
-      }
-      if (typeof out.header === 'string' && out.header.trim()) announceHeader = out.header.trim();
-      if (typeof out.footer === 'string') announceFooter = out.footer.trim();
-      announceFillSettingsInputs();
-      announceRenderRoleChips();
-      announceSync();
-    });
-  }
+  announceEnsureSettings();
 
   const authBlock = authed ? '' : `
     <div class="ann-login">
@@ -4218,39 +4235,6 @@ function renderAdminAnnounce() {
             <span class="ann-switch-text">Собрать голоса опросом Discord</span>
           </label>
           <div class="a-hint" id="announcePollNote" style="margin:10px 0 0"></div>
-        </section>
-
-        <section class="ann-block">
-          <div class="ann-block-head">
-            <h4>Пинги и текст</h4>
-            <span class="ann-count">только админам</span>
-          </div>
-
-          <label class="ann-field">
-            <span class="ann-field-label">Заголовок <span class="ann-sub-note">{date} подставит дату</span></span>
-            <input type="text" id="announceHeaderInput" class="ann-input" maxlength="200"
-                   autocomplete="off" spellcheck="false" placeholder="**📅 Наборы — {date}**">
-          </label>
-
-          <label class="ann-field">
-            <span class="ann-field-label">Подпись <span class="ann-sub-note">мелким серым текстом</span></span>
-            <input type="text" id="announceFooterInput" class="ann-input" maxlength="300"
-                   autocomplete="off" spellcheck="false" placeholder="Ждём всех за 10 минут до начала.">
-          </label>
-
-          <div class="ann-sub">Роли для пинга</div>
-          <div class="announce-chips" id="announceRoleChips"></div>
-          <div class="ann-time-row">
-            <input type="text" id="announceRoleInput" class="ann-input"
-                   placeholder="745515563333189632 или «Отдел ИП»"
-                   autocomplete="off" spellcheck="false">
-            <button type="button" class="a-btn sec" id="announceRoleAdd">Добавить</button>
-          </div>
-
-          <div class="ann-time-row">
-            <button type="button" class="a-btn" id="announceSettingsSave">Сохранить</button>
-            <span class="a-hint" id="announceSettingsStatus"></span>
-          </div>
         </section>
 
       </div>
@@ -4369,9 +4353,129 @@ function renderAdminAnnounce() {
   if ($('announceDeleteBtn')) $('announceDeleteBtn').onclick = announceDeleteLast;
 
   announceRenderPresets();
-  announceFillSettingsInputs();
-  announceRenderRoleChips();
 
+  announceSync();
+}
+
+
+/* Настройки анонса живут только в админке (шестерёнка → «Наборы»),
+   чтобы не засорять рабочий блок 09. */
+function renderAnnounceSettings() {
+  const root = $('announceSettingsRoot');
+  if (!root) return;
+  const authed = !!getAuthToken();
+
+  const authBlock = authed ? '' : `
+    <div class="ann-login">
+      <h4>Доступ</h4>
+      <div class="a-hint">Настройки меняются по секрету сервера — он же нужен, чтобы отправлять анонсы.</div>
+      <div class="ann-time-row">
+        <input type="password" id="announceSettingsSecret" class="ann-input" placeholder="секрет сервера" autocomplete="off">
+        <button type="button" class="a-btn sec" id="announceSettingsLoginBtn">Подтвердить</button>
+      </div>
+      <div id="announceSettingsLoginStatus" class="a-hint" style="margin:10px 0 0"></div>
+    </div>`;
+
+  const form = authed ? `
+    <div class="ann-layout">
+      <div class="ann-main">
+        <section class="ann-block">
+          <div class="ann-block-head">
+            <h4>Пинги и текст</h4>
+            <span class="ann-count">для всех анонсов</span>
+          </div>
+
+          <label class="ann-field">
+            <span class="ann-field-label">Заголовок <span class="ann-sub-note">{date} подставит дату</span></span>
+            <input type="text" id="announceHeaderInput" class="ann-input" maxlength="200"
+                   autocomplete="off" spellcheck="false" placeholder="**📅 Наборы — {date}**">
+          </label>
+
+          <label class="ann-field">
+            <span class="ann-field-label">Подпись <span class="ann-sub-note">мелким текстом под списком</span></span>
+            <input type="text" id="announceFooterInput" class="ann-input" maxlength="300"
+                   autocomplete="off" spellcheck="false" placeholder="Ждём всех за 10 минут до начала.">
+          </label>
+
+          <div class="ann-sub">Роли для пинга</div>
+          <div class="announce-chips" id="announceRoleChips"></div>
+          <div class="ann-time-row">
+            <input type="text" id="announceRoleInput" class="ann-input"
+                   placeholder="745515563333189632 или «Отдел ИП»"
+                   autocomplete="off" spellcheck="false">
+            <button type="button" class="a-btn sec" id="announceRoleAdd">Добавить</button>
+          </div>
+
+          <div class="ann-time-row">
+            <button type="button" class="a-btn" id="announceSettingsSave">Сохранить</button>
+            <span class="a-hint" id="announceSettingsStatus"></span>
+          </div>
+
+          <div class="a-hint" style="margin-top:12px">
+            Эти настройки применяются ко всем анонсам. Сам блок «Наборы» остаётся чистым: там только дата,
+            время, опрос и отправка.
+          </div>
+        </section>
+      </div>
+
+      <aside class="ann-side">
+        <div class="ann-block ann-preview-block">
+          <div class="ann-block-head">
+            <h4>Как придёт в Discord</h4>
+            <span class="ann-pv-badge">Discord</span>
+          </div>
+          <div class="ann-preview" id="announceSettingsPreview"></div>
+        </div>
+      </aside>
+    </div>` : '';
+
+  root.innerHTML = authBlock + form;
+
+  const loginBtn = $('announceSettingsLoginBtn');
+  if (loginBtn) {
+    loginBtn.onclick = async () => {
+      const input = $('announceSettingsSecret');
+      const status = $('announceSettingsLoginStatus');
+      const password = (input && input.value ? input.value : '').trim();
+      if (!password) { if (status) status.textContent = 'Введите секрет сервера.'; return; }
+      if (status) status.textContent = 'Проверка…';
+      const outcome = await acquireAuthToken(password);
+      if (outcome.ok) {
+        announceRolesLoaded = false;
+        renderAnnounceSettings();
+        toast('Доступ подтверждён', 'Настройки анонса открыты.');
+      } else {
+        const messages = {
+          unauthorized: 'Неверный секрет сервера.',
+          no_server_secret: 'На сервере не задан ADMIN_SECRET.',
+          rate_limited: 'Слишком много попыток. Подождите минуту.',
+          network: 'Нет связи с сервером.'
+        };
+        if (status) status.textContent = messages[outcome.code] || ('Ошибка: ' + outcome.code);
+      }
+    };
+  }
+
+  if (!authed) return;
+
+  announceEnsureSettings();
+  announceRenderRoleChips();
+  announceFillSettingsInputs();
+
+  const headerInput = $('announceHeaderInput');
+  if (headerInput) {
+    headerInput.oninput = () => {
+      announceHeader = headerInput.value;
+      announceSync();
+    };
+  }
+  const footerInput = $('announceFooterInput');
+  if (footerInput) {
+    footerInput.oninput = () => {
+      announceFooter = footerInput.value;
+      announceSync();
+    };
+  }
   if ($('announceRoleAdd')) $('announceRoleAdd').onclick = announceAddRole;
   if ($('announceRoleInput')) {
     $('announceRoleInput').onkeydown = e => {
@@ -4380,7 +4484,8 @@ function renderAdminAnnounce() {
   }
   if ($('announceSettingsSave')) $('announceSettingsSave').onclick = announceSaveSettings;
 
-  announceSync();
+  const pv = $('announceSettingsPreview');
+  if (pv) { pv.innerHTML = announcePreviewHtml(); hydrateIcons(pv); }
 }
 
 
@@ -5318,6 +5423,7 @@ function init() {
   on('selectIntern', 'click', () => showScreen('intern'));
   on('selectUnfit', 'click', () => showScreen('unfit'));
   on('selectPremium', 'click', () => showScreen('premium'));
+  on('selectAnnounce', 'click', () => { if (adminUnlocked) showScreen('announce'); });
   on('backToMenuWeekly', 'click', () => showScreen('menu'));
   on('backToMenuPromotion', 'click', () => showScreen('menu'));
   on('backToMenuNight', 'click', () => showScreen('menu'));
