@@ -3867,7 +3867,7 @@ function announcePreviewHtml() {
 
   return `
     <div class="ann-pv-head">
-      <span class="ann-pv-avatar"><img src="avatar.jpg" alt="" loading="lazy"></span>
+      <span class="ann-pv-avatar"><img src="avatar.jpg" alt=""></span>
       <span class="ann-pv-name">Наборы</span>
       <span class="ann-pv-app">APP</span>
       <span class="ann-pv-time">сегодня</span>
