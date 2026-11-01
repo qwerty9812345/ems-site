@@ -3496,11 +3496,16 @@ const ANNOUNCE_ROLE_NAMES = {
   '745319702183804951': 'Министерство Здравоохранения'
 };
 const ANNOUNCE_POLL_MAX = 10;
+const ANNOUNCE_DEFAULT_HEADER = '**📅 Наборы — {date}**';
+const ANNOUNCE_DEFAULT_FOOTER = 'Ждём всех за 10 минут до начала.';
+const ANNOUNCE_POLL_FOOTER = 'Жмяк на опрос, на каких наборах будете';
 
 let announceDate = '';
 let announceTimes = [];
 let announceRoles = [];
 let announceRolesLoaded = false;
+let announceHeader = ANNOUNCE_DEFAULT_HEADER;
+let announceFooter = ANNOUNCE_DEFAULT_FOOTER;
 let announcePoll = false;
 let announceCalMonth = null;
 let announceDateOpen = false;
@@ -3803,6 +3808,14 @@ function announceUpdateTimeHint() {
   hint.classList.add('ok');
 }
 
+/* Мини-разметка для предпросмотра: **жирный**, __подчёркнутый__, `код`. */
+function announceMdInline(text) {
+  return escapeHtml(String(text == null ? '' : text))
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/__([^_]+)__/g, '<u>$1</u>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
 function announcePreviewHtml() {
   const date = announceDateLabel(announceDate) || 'дд.мм.гггг';
   const times = announceTimes.length ? announceTimes : ['13:00 – 13:40'];
@@ -3816,9 +3829,11 @@ function announcePreviewHtml() {
     `<div class="ann-pv-item"><span class="ann-pv-num">${i + 1}</span><span class="ann-pv-slot">${escapeHtml(t)}</span></div>`
   ).join('');
 
+  const title = announceMdInline((announceHeader || ANNOUNCE_DEFAULT_HEADER).replace(/\{date\}/g, date));
+  const foot = announceMdInline(announceFooter || ANNOUNCE_DEFAULT_FOOTER);
   const footer = announcePoll
-    ? '<span>Ждем всех за 10 минут до начала.</span><b>Жмяк на опрос, на каких наборах будете</b>'
-    : '<span>Ждем всех за 10 минут до начала.</span>';
+    ? `<span>${foot}</span><b>${escapeHtml(ANNOUNCE_POLL_FOOTER)}</b>`
+    : `<span>${foot}</span>`;
 
   let poll = '';
   if (announcePoll) {
@@ -3849,7 +3864,7 @@ function announcePreviewHtml() {
     </div>
     <div class="ann-pv-body">
       <div class="ann-pv-roles">${rolePills}</div>
-      <div class="ann-pv-title">Наборы ${escapeHtml(date)} то будут в таком режиме:</div>
+      <div class="ann-pv-title">${title}</div>
       ${announcePoll ? '' : `<div class="ann-pv-list">${items}</div>`}
       <div class="ann-pv-foot">${footer}</div>
       ${poll}
@@ -4004,6 +4019,99 @@ function announceApi(body) {
     .catch(e => ({ ok: false, code: 'network', detail: String((e && e.message) || e) }));
 }
 
+/* ---------- Настройки анонса: роли, заголовок, подпись ---------- */
+
+function announceFillSettingsInputs() {
+  const h = $('announceHeaderInput');
+  if (h && document.activeElement !== h) h.value = announceHeader;
+  const f = $('announceFooterInput');
+  if (f && document.activeElement !== f) f.value = announceFooter;
+}
+
+function announceRenderRoleChips() {
+  const box = $('announceRoleChips');
+  if (!box) return;
+  box.innerHTML = announceRoles.length
+    ? announceRoles.map((id, i) =>
+      '<span class="ann-chip ann-role-chip">' +
+        '<span class="ann-chip-time">@' + escapeHtml(announceRoleName(id)) + '</span>' +
+        '<button type="button" data-announce-role-remove="' + i + '" aria-label="Убрать">×</button>' +
+      '</span>'
+    ).join('')
+    : '<span class="ann-empty">Ролей нет — добавьте ID роли или её название.</span>';
+  box.querySelectorAll('[data-announce-role-remove]').forEach(btn => {
+    btn.onclick = () => {
+      announceRoles.splice(Number(btn.dataset.announceRoleRemove), 1);
+      announceRenderRoleChips();
+      announceSync();
+    };
+  });
+}
+
+/* Роль можно добавить ID (числом) или названием: «Отдел ИП», «@Стажёр ИП». */
+function announceRoleIdFromInput(raw) {
+  const s = String(raw || '').trim();
+  const digits = /(\d{15,25})/.exec(s);
+  if (digits) return digits[1];
+  const name = s.replace(/^@/, '').trim().toLowerCase();
+  if (!name) return '';
+  return Object.keys(ANNOUNCE_ROLE_NAMES)
+    .find(id => ANNOUNCE_ROLE_NAMES[id].toLowerCase() === name) || '';
+}
+
+function announceAddRole() {
+  const input = $('announceRoleInput');
+  const status = $('announceSettingsStatus');
+  const id = announceRoleIdFromInput(input && input.value);
+  if (!id) {
+    if (status) status.textContent = 'Не понял роль: вставьте ID (число) или название, например «Отдел ИП».';
+    return;
+  }
+  if (announceRoles.indexOf(id) >= 0) {
+    if (status) status.textContent = 'Такая роль уже в списке.';
+    return;
+  }
+  if (announceRoles.length >= 5) {
+    if (status) status.textContent = 'Больше 5 ролей Discord не упомянет.';
+    return;
+  }
+  announceRoles.push(id);
+  if (input) input.value = '';
+  if (status) status.textContent = '';
+  announceRenderRoleChips();
+  announceSync();
+}
+
+async function announceSaveSettings() {
+  const status = $('announceSettingsStatus');
+  const headerInput = $('announceHeaderInput');
+  const footerInput = $('announceFooterInput');
+  const header = (headerInput ? headerInput.value : '').trim();
+  const footer = (footerInput ? footerInput.value : '').trim();
+  if (!header) { if (status) status.textContent = 'Заголовок не может быть пустым.'; return; }
+  if (!announceRoles.length) { if (status) status.textContent = 'Добавьте хотя бы одну роль для пинга.'; return; }
+  if (status) status.textContent = 'Сохранение…';
+  const out = await announceApi({ action: 'settings', roles: announceRoles.slice(), header, footer });
+  if (out.ok) {
+    announceHeader = out.header || header;
+    announceFooter = typeof out.footer === 'string' ? out.footer : footer;
+    announceFillSettingsInputs();
+    announceSync();
+    if (status) status.textContent = 'Сохранено — новые анонсы уйдут с этим текстом.';
+    toast('Настройки анонса', 'Роли и текст сохранены.');
+  } else {
+    const messages = {
+      bad_roles: 'Нужна хотя бы одна роль.',
+      bad_header: 'Заголовок пустой или слишком длинный (до 200 символов).',
+      bad_footer: 'Подпись слишком длинная (до 300 символов).',
+      unauthorized: 'Нужен секрет сервера — подтвердите доступ.',
+      storage: 'Не удалось сохранить на сервере.',
+      network: 'Нет связи с сервером.'
+    };
+    if (status) status.textContent = messages[out.code] || ('Не удалось: ' + (out.code || 'ошибка'));
+  }
+}
+
 function renderAdminAnnounce() {
   const root = $('announceRoot');
   if (!root) return;
@@ -4012,14 +4120,19 @@ function renderAdminAnnounce() {
   const authed = !!getAuthToken();
 
   if (authed && !announceRolesLoaded) {
-    /* Роли подтягиваем один раз и не перерисовываем форму: иначе запоздавший
-       ответ сервера стирал бы уже начатый ввод времени. */
+    /* Роли и текст подтягиваем один раз и не перерисовываем форму: иначе
+       запоздавший ответ сервера стирал бы уже начатый ввод времени. */
     announceRolesLoaded = true;
     announceApi({ action: 'status' }).then(out => {
-      if (!out || !out.ok || !Array.isArray(out.roles) || !out.roles.length) return;
-      const next = out.roles.map(String);
-      if (next.join(',') === announceRoles.join(',')) return;
-      announceRoles = next;
+      if (!out || !out.ok) return;
+      if (Array.isArray(out.roles) && out.roles.length) {
+        const next = out.roles.map(String);
+        if (next.join(',') !== announceRoles.join(',')) announceRoles = next;
+      }
+      if (typeof out.header === 'string' && out.header.trim()) announceHeader = out.header.trim();
+      if (typeof out.footer === 'string') announceFooter = out.footer.trim();
+      announceFillSettingsInputs();
+      announceRenderRoleChips();
       announceSync();
     });
   }
@@ -4091,6 +4204,39 @@ function renderAdminAnnounce() {
             <span class="ann-switch-text">Собрать голоса опросом Discord</span>
           </label>
           <div class="a-hint" id="announcePollNote" style="margin:10px 0 0"></div>
+        </section>
+
+        <section class="ann-block">
+          <div class="ann-block-head">
+            <h4>Пинги и текст</h4>
+            <span class="ann-count">только админам</span>
+          </div>
+
+          <label class="ann-field">
+            <span class="ann-field-label">Заголовок <span class="ann-sub-note">{date} подставит дату</span></span>
+            <input type="text" id="announceHeaderInput" class="ann-input" maxlength="200"
+                   autocomplete="off" spellcheck="false" placeholder="**📅 Наборы — {date}**">
+          </label>
+
+          <label class="ann-field">
+            <span class="ann-field-label">Подпись <span class="ann-sub-note">мелким серым текстом</span></span>
+            <input type="text" id="announceFooterInput" class="ann-input" maxlength="300"
+                   autocomplete="off" spellcheck="false" placeholder="Ждём всех за 10 минут до начала.">
+          </label>
+
+          <div class="ann-sub">Роли для пинга</div>
+          <div class="announce-chips" id="announceRoleChips"></div>
+          <div class="ann-time-row">
+            <input type="text" id="announceRoleInput" class="ann-input"
+                   placeholder="745515563333189632 или «Отдел ИП»"
+                   autocomplete="off" spellcheck="false">
+            <button type="button" class="a-btn sec" id="announceRoleAdd">Добавить</button>
+          </div>
+
+          <div class="ann-time-row">
+            <button type="button" class="a-btn" id="announceSettingsSave">Сохранить</button>
+            <span class="a-hint" id="announceSettingsStatus"></span>
+          </div>
         </section>
 
       </div>
@@ -4209,6 +4355,17 @@ function renderAdminAnnounce() {
   if ($('announceDeleteBtn')) $('announceDeleteBtn').onclick = announceDeleteLast;
 
   announceRenderPresets();
+  announceFillSettingsInputs();
+  announceRenderRoleChips();
+
+  if ($('announceRoleAdd')) $('announceRoleAdd').onclick = announceAddRole;
+  if ($('announceRoleInput')) {
+    $('announceRoleInput').onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); announceAddRole(); }
+    };
+  }
+  if ($('announceSettingsSave')) $('announceSettingsSave').onclick = announceSaveSettings;
+
   announceSync();
 }
 
