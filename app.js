@@ -3845,10 +3845,7 @@ function announcePreviewHtml() {
   const title = announceMdInline((announceHeader || ANNOUNCE_DEFAULT_HEADER).replace(/\{date\}/g, date));
   const foot = announceMdInline(announceFooter || ANNOUNCE_DEFAULT_FOOTER);
   const footer = `<span>${foot}</span>`;
-  /* В embed подпись живёт в footer, а в режиме опроса в описании — только призыв. */
-  const cta = announcePoll
-    ? `<div class="ann-pv-cta"><b>${escapeHtml(ANNOUNCE_POLL_FOOTER)}</b></div>`
-    : '';
+  const cta = `<div class="ann-pv-cta"><b>${escapeHtml(ANNOUNCE_POLL_FOOTER)}</b></div>`;
 
   let poll = '';
   if (announcePoll) {
@@ -3870,6 +3867,23 @@ function announcePreviewHtml() {
       </div>`;
   }
 
+  /* Discord ставит опрос между текстом и embed, поэтому в режиме опроса
+     расписание показываем обычным текстом сверху, а карточку не рисуем. */
+  const message = announcePoll
+    ? `<div class="ann-pv-plain">
+         <div class="ann-pv-title">${title}</div>
+         <div class="ann-pv-list">${items}</div>
+         <div class="ann-pv-foot">${footer}</div>
+         ${cta}
+       </div>`
+    : `<div class="ann-pv-embed">
+         <div class="ann-pv-embed-in">
+           <div class="ann-pv-title">${title}</div>
+           <div class="ann-pv-list">${items}</div>
+           <div class="ann-pv-foot">${footer}</div>
+         </div>
+       </div>`;
+
   return `
     <div class="ann-pv-head">
       <span class="ann-pv-avatar"><img src="avatar.jpg" alt=""></span>
@@ -3879,13 +3893,7 @@ function announcePreviewHtml() {
     </div>
     <div class="ann-pv-body">
       <div class="ann-pv-roles">${rolePills}</div>
-      <div class="ann-pv-embed">
-        <div class="ann-pv-embed-in">
-          <div class="ann-pv-title">${title}</div>
-          ${announcePoll ? cta : `<div class="ann-pv-list">${items}</div>`}
-          <div class="ann-pv-foot">${footer}</div>
-        </div>
-      </div>
+      ${message}
       ${poll}
     </div>`;
 }
