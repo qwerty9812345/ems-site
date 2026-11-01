@@ -1918,8 +1918,20 @@ a.ph-link:hover {
   width: 34px; height: 34px; border-radius: 50%; display: inline-flex;
   align-items: center; justify-content: center; background: var(--lime-grad); color: #17110b;
   flex-shrink: 0; box-shadow: 0 0 0 2px rgba(255, 181, 77, .12);
+  overflow: hidden;
 }
 .ann-pv-avatar svg { width: 18px; height: 18px; }
+.ann-pv-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ann-pv-embed {
+  border-left: 4px solid #b6e04d;
+  background: #2b2d31;
+  border-radius: 4px 10px 10px 4px;
+  padding: 12px 14px 13px;
+  margin-bottom: 12px;
+}
+.ann-pv-embed-in { min-width: 0; }
+.ann-pv-embed .ann-pv-foot { padding-top: 0; border-top: 0; }
+.ann-pv-cta { color: #f2f3f5; font-size: 13.5px; line-height: 1.5; margin-bottom: 10px; }
 .ann-pv-name { font-weight: 800; color: #f2f3f5; font-size: 14px; }
 .ann-pv-app {
   font-size: 9px; font-weight: 800; background: #5865f2; color: #fff;
@@ -2550,14 +2562,6 @@ body.gate-locked { overflow: hidden; }
           <span class="menu-card-desc">Готовый текст для Discord по сотрудникам с галочками «Еженеделька» и «Премия»</span>
           <span class="menu-card-cta">Открыть <span class="arrow">→</span></span>
         </button>
-
-        <button class="menu-card alt8 hidden" id="selectAnnounce" type="button">
-          <span class="menu-idx">09</span>
-          <span class="menu-icon" id="menuIconAnnounce" data-icon="send"></span>
-          <span class="menu-card-title" id="menuTitleAnnounce">Наборы</span>
-          <span class="menu-card-desc">Анонс наборов в Discord: пинги ролей, дата и время — без ручного набора текста</span>
-          <span class="menu-card-cta">Открыть <span class="arrow">→</span></span>
-        </button>
       </div>
 
     </section>
@@ -2992,22 +2996,6 @@ body.gate-locked { overflow: hidden; }
         </div>
       </div>
     </section>
-
-    <!-- ================= НАБОРЫ ================= -->
-    <section id="announceForm" class="screen hidden">
-      <div class="top-row">
-        <button class="back-btn" id="backToMenuAnnounce" data-icon="back"><span>Назад</span></button>
-      </div>
-
-      <div class="page-head">
-        <h2>Наборы</h2>
-        <p class="page-sub">Анонс наборов в Discord: пинги ролей, дата и время — без ручного набора текста</p>
-      </div>
-
-      <div class="card">
-        <div id="announceRoot"></div>
-      </div>
-    </section>
   </main>
 
   <!-- ================= МОДАЛКА ВЫБОРА ПУНКТА ================= -->
@@ -3058,6 +3046,7 @@ body.gate-locked { overflow: hidden; }
             <button class="admin-tab" data-tab="premium">Премия</button>
             <button class="admin-tab" data-tab="send">Отправка</button>
             <button class="admin-tab" data-tab="reports">Отчёты</button>
+            <button class="admin-tab" data-tab="announce">Наборы</button>
             <button class="admin-tab" data-tab="data">Данные</button>
           </div>
 
@@ -3073,6 +3062,7 @@ body.gate-locked { overflow: hidden; }
             <div id="tabPremium" class="admin-tab-content"><div class="admin-scroll"></div></div>
             <div id="tabSend" class="admin-tab-content"><div class="admin-scroll"></div></div>
             <div id="tabReports" class="admin-tab-content"><div class="admin-scroll"></div></div>
+            <div id="tabAnnounce" class="admin-tab-content"><div class="admin-scroll"><div id="announceRoot"></div></div></div>
             <div id="tabData" class="admin-tab-content"><div class="admin-scroll"></div></div>
           </div>
 
@@ -3492,6 +3482,6 @@ function clearReports() {
 }
     </script>
     <!-- INLINE_SCRIPTS_END -->
-  <script src="app.js?v=f7c431f4" async></script>
+  <script src="app.js?v=8aa5b5b0" async></script>
 </body>
 </html>

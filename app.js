@@ -397,9 +397,6 @@ function updateMenuVisibility() {
   if (u) u.classList.toggle('hidden', !unlocked);
   const p = $('selectPremium');
   if (p) p.classList.toggle('hidden', !adminUnlocked);
-  /* «Наборы» — только старший состав (админ-доступ). */
-  const a = $('selectAnnounce');
-  if (a) a.classList.toggle('hidden', !adminUnlocked);
 }
 
 function renderRules(id, rules) {
@@ -522,14 +519,12 @@ function showScreen(name) {
   $('internForm').classList.toggle('hidden', name !== 'intern');
   $('unfitForm').classList.toggle('hidden', name !== 'unfit');
   $('premiumForm').classList.toggle('hidden', name !== 'premium');
-  if ($('announceForm')) $('announceForm').classList.toggle('hidden', name !== 'announce');
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'weekly') { setCurrentWeek('weekly'); renderCalendar('weekly'); }
   if (name === 'night') { setCurrentWeek('night'); renderCalendar('night'); }
   if (name === 'promotion') toggleConditionalFields();
   if (name === 'quiz') renderQuiz();
   if (name === 'premium') renderPremium();
-  if (name === 'announce') renderAdminAnnounce();
 }
 
 /* ================= Календарь ================= */
@@ -2233,6 +2228,10 @@ function openAdmin() {
   if (adminUnlocked) {
     editedConfig = deepClone(CONFIG);
     renderAdminEditor();
+    /* Возвращаемся на ту вкладку, где остановились: у «Наборов» своя кнопка сохранения. */
+    const activeTab = document.querySelector('.admin-tab.active');
+    const saveBtn = $('saveAdminBtn');
+    if (saveBtn) saveBtn.classList.toggle('hidden', !!activeTab && activeTab.dataset.tab === 'announce');
   }
   document.querySelector('#adminModal .modal').classList.toggle('tall', adminUnlocked);
   $('adminModal').classList.add('active');
@@ -2410,6 +2409,11 @@ function updateQuizTotal() {
 function switchTab(tabId) {
   document.querySelectorAll('.admin-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
   document.querySelectorAll('.admin-tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab' + tabId.charAt(0).toUpperCase() + tabId.slice(1)));
+  /* Блок 09 живёт только в админке: рисуем форму при первом открытии вкладки. */
+  if (tabId === 'announce') renderAdminAnnounce();
+  /* На вкладке «Наборы» своя кнопка сохранения — общий «Сохранить изменения» не нужен. */
+  const saveBtn = $('saveAdminBtn');
+  if (saveBtn) saveBtn.classList.toggle('hidden', tabId === 'announce');
   const active = document.querySelector('.admin-tab-content.active .admin-scroll');
   if (active) {
     if (typeof active.scrollTo === 'function') active.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2449,6 +2453,10 @@ function renderAdminEditor() {
   renderAdminSend();
   renderAdminReports();
   renderAdminData();
+
+  /* Если админка открыта на вкладке «Наборы», обновляем и её. */
+  const activeTab = document.querySelector('.admin-tab.active');
+  if (activeTab && activeTab.dataset.tab === 'announce') renderAdminAnnounce();
 }
 
 /* --- пункты --- */
@@ -3831,9 +3839,11 @@ function announcePreviewHtml() {
 
   const title = announceMdInline((announceHeader || ANNOUNCE_DEFAULT_HEADER).replace(/\{date\}/g, date));
   const foot = announceMdInline(announceFooter || ANNOUNCE_DEFAULT_FOOTER);
-  const footer = announcePoll
-    ? `<span>${foot}</span><b>${escapeHtml(ANNOUNCE_POLL_FOOTER)}</b>`
-    : `<span>${foot}</span>`;
+  const footer = `<span>${foot}</span>`;
+  /* В embed подпись живёт в footer, а в режиме опроса в описании — только призыв. */
+  const cta = announcePoll
+    ? `<div class="ann-pv-cta"><b>${escapeHtml(ANNOUNCE_POLL_FOOTER)}</b></div>`
+    : '';
 
   let poll = '';
   if (announcePoll) {
@@ -3857,16 +3867,20 @@ function announcePreviewHtml() {
 
   return `
     <div class="ann-pv-head">
-      <span class="ann-pv-avatar" data-icon="send"></span>
+      <span class="ann-pv-avatar"><img src="avatar.jpg" alt="" loading="lazy"></span>
       <span class="ann-pv-name">Наборы</span>
       <span class="ann-pv-app">APP</span>
       <span class="ann-pv-time">сегодня</span>
     </div>
     <div class="ann-pv-body">
       <div class="ann-pv-roles">${rolePills}</div>
-      <div class="ann-pv-title">${title}</div>
-      ${announcePoll ? '' : `<div class="ann-pv-list">${items}</div>`}
-      <div class="ann-pv-foot">${footer}</div>
+      <div class="ann-pv-embed">
+        <div class="ann-pv-embed-in">
+          <div class="ann-pv-title">${title}</div>
+          ${announcePoll ? cta : `<div class="ann-pv-list">${items}</div>`}
+          <div class="ann-pv-foot">${footer}</div>
+        </div>
+      </div>
       ${poll}
     </div>`;
 }
@@ -5088,6 +5102,8 @@ function initAdminEvents() {
       document.querySelector('#adminModal .modal').classList.add('tall');
       editedConfig = deepClone(CONFIG);
       renderAdminEditor();
+      const activeTab = document.querySelector('.admin-tab.active');
+      if ($('saveAdminBtn')) $('saveAdminBtn').classList.toggle('hidden', !!activeTab && activeTab.dataset.tab === 'announce');
       updateMenuVisibility();
     } else {
       err.textContent = 'Неверный пароль';
@@ -5302,7 +5318,6 @@ function init() {
   on('selectIntern', 'click', () => showScreen('intern'));
   on('selectUnfit', 'click', () => showScreen('unfit'));
   on('selectPremium', 'click', () => showScreen('premium'));
-  on('selectAnnounce', 'click', () => { if (adminUnlocked) showScreen('announce'); });
   on('backToMenuWeekly', 'click', () => showScreen('menu'));
   on('backToMenuPromotion', 'click', () => showScreen('menu'));
   on('backToMenuNight', 'click', () => showScreen('menu'));
