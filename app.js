@@ -3552,14 +3552,30 @@ function announceWeekday(iso) {
   return announceDateFromIso(iso).toLocaleDateString('ru-RU', { weekday: 'short' });
 }
 
-function announceLastId() {
-  try { return localStorage.getItem(ANNOUNCE_LAST_KEY) || ''; } catch (e) { return ''; }
+/* Последний анонс: основное сообщение и (в режиме опроса) сообщение с опросом. */
+function announceLast() {
+  try {
+    const raw = localStorage.getItem(ANNOUNCE_LAST_KEY) || '';
+    if (!raw) return { id: '', pollId: '' };
+    if (/^\d{15,25}$/.test(raw)) return { id: raw, pollId: '' };
+    const data = JSON.parse(raw);
+    return {
+      id: /^\d{15,25}$/.test(String(data.id || '')) ? String(data.id) : '',
+      pollId: /^\d{15,25}$/.test(String(data.pollId || '')) ? String(data.pollId) : ''
+    };
+  } catch (e) {
+    return { id: '', pollId: '' };
+  }
 }
 
-function setAnnounceLastId(id) {
+function announceLastId() {
+  return announceLast().id;
+}
+
+function setAnnounceLast(id, pollId) {
   try {
-    if (id) localStorage.setItem(ANNOUNCE_LAST_KEY, id);
-    else localStorage.removeItem(ANNOUNCE_LAST_KEY);
+    if (!id) localStorage.removeItem(ANNOUNCE_LAST_KEY);
+    else localStorage.setItem(ANNOUNCE_LAST_KEY, JSON.stringify({ id, pollId: pollId || '' }));
   } catch (e) {}
 }
 
@@ -3867,16 +3883,10 @@ function announcePreviewHtml() {
       </div>`;
   }
 
-  /* Discord ставит опрос между текстом и embed, поэтому в режиме опроса
-     расписание показываем обычным текстом сверху, а карточку не рисуем. */
-  const message = announcePoll
-    ? `<div class="ann-pv-plain">
-         <div class="ann-pv-title">${title}</div>
-         <div class="ann-pv-list">${items}</div>
-         <div class="ann-pv-foot">${footer}</div>
-         ${cta}
-       </div>`
-    : `<div class="ann-pv-embed">
+  /* Основное сообщение — всегда карточка-embed, как в обычном режиме.
+     Опрос Discord уходит отдельным сообщением ниже, поэтому в предпросмотре
+     призыв и опрос стоят под карточкой. */
+  const message = `<div class="ann-pv-embed">
          <div class="ann-pv-embed-in">
            <div class="ann-pv-title">${title}</div>
            <div class="ann-pv-list">${items}</div>
@@ -3894,6 +3904,7 @@ function announcePreviewHtml() {
     <div class="ann-pv-body">
       <div class="ann-pv-roles">${rolePills}</div>
       ${message}
+      ${announcePoll ? cta : ''}
       ${poll}
     </div>`;
 }
@@ -4512,13 +4523,13 @@ async function announceSendNow() {
   const out = await announceApi({ date, times: announceTimes.slice(), poll: announcePoll });
   if (btn) btn.disabled = false;
   if (out.ok) {
-    setAnnounceLastId(out.messageId || '');
+    setAnnounceLast(out.messageId || '', out.pollMessageId || '');
     if (status) {
       status.innerHTML = 'Отправлено.' + (out.url
         ? ' <a href="' + escapeHtml(out.url) + '" target="_blank" rel="noopener">Открыть сообщение</a>'
         : '');
     }
-    toast('Анонс отправлен', 'Сообщение уже в Discord.');
+    toast('Анонс отправлен', out.pollMessageId ? 'Сообщение и опрос уже в Discord.' : 'Сообщение уже в Discord.');
   } else {
     const messages = {
       unauthorized: 'Нужен секрет сервера — подтвердите доступ.',
@@ -4541,14 +4552,14 @@ async function announceSendNow() {
 
 async function announceDeleteLast() {
   const status = $('announceStatus');
-  const id = announceLastId();
-  if (!id) { if (status) status.textContent = 'Нечего удалять — это браузер не отправлял анонс.'; return; }
+  const last = announceLast();
+  if (!last.id) { if (status) status.textContent = 'Нечего удалять — это браузер не отправлял анонс.'; return; }
   if (status) status.textContent = 'Удаление…';
-  const out = await announceApi({ action: 'delete', messageId: id });
+  const out = await announceApi({ action: 'delete', messageId: last.id, pollMessageId: last.pollId });
   if (out.ok) {
-    setAnnounceLastId('');
-    if (status) status.textContent = 'Сообщение удалено.';
-    toast('Удалено', 'Анонс убран из Discord.');
+    setAnnounceLast('', '');
+    if (status) status.textContent = last.pollId ? 'Сообщение и опрос удалены.' : 'Сообщение удалено.';
+    toast('Удалено', last.pollId ? 'Анонс и опрос убраны из Discord.' : 'Анонс убран из Discord.');
   } else {
     if (status) status.textContent = 'Не удалось удалить: ' + (out.code || 'ошибка');
   }
