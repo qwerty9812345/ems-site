@@ -2454,6 +2454,19 @@ body.gate-locked { overflow: hidden; }
 }
 .premium-text:focus { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-soft); }
 .premium-text::placeholder { color: var(--muted-2); }
+
+/* ---- Админка: редактор сообщений ботов ---- */
+.bot-msg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-top: 12px; }
+.bot-msg-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.bot-msg-grid input { width: 100%; }
+.bot-role-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.bot-role-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: rgba(182, 224, 77, .12); border: 1px solid rgba(182, 224, 77, .35); font-size: 12px; font-weight: 700; color: #d9f7a3; }
+.bot-role-chip button { border: 0; background: transparent; color: #ff8f8f; cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+.bot-role-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bot-role-add input { flex: 1; min-width: 220px; }
+.bot-pv-line { font-size: 13.5px; line-height: 1.55; color: #dbdee1; min-height: 2px; }
+.bot-pv-line b { color: #f2f3f5; }
+@media (max-width: 720px) { .bot-msg-grid { grid-template-columns: 1fr; } }
     </style>
     <!-- INLINE_STYLES_END -->
 </head>
@@ -3069,6 +3082,7 @@ body.gate-locked { overflow: hidden; }
             <button class="admin-tab" data-tab="quiz">Стажировка</button>
             <button class="admin-tab" data-tab="premium">Премия</button>
             <button class="admin-tab" data-tab="send">Отправка</button>
+            <button class="admin-tab" data-tab="messages">Сообщения</button>
             <button class="admin-tab" data-tab="reports">Отчёты</button>
             <button class="admin-tab" data-tab="announce">Наборы</button>
             <button class="admin-tab" data-tab="data">Данные</button>
@@ -3085,6 +3099,7 @@ body.gate-locked { overflow: hidden; }
             <div id="tabQuiz" class="admin-tab-content"><div class="admin-scroll"></div></div>
             <div id="tabPremium" class="admin-tab-content"><div class="admin-scroll"></div></div>
             <div id="tabSend" class="admin-tab-content"><div class="admin-scroll"></div></div>
+            <div id="tabMessages" class="admin-tab-content"><div class="admin-scroll"></div></div>
             <div id="tabReports" class="admin-tab-content"><div class="admin-scroll"></div></div>
             <div id="tabAnnounce" class="admin-tab-content"><div class="admin-scroll"><div id="announceSettingsRoot"></div></div></div>
             <div id="tabData" class="admin-tab-content"><div class="admin-scroll"></div></div>
@@ -3181,6 +3196,8 @@ const DEFAULT_CONFIG = {
     'Участие в МП': 3,
     'Участие в ГМП': 3,
     'Помощь на поставке': 2,
+    'Один час дежурства на стойке LS': 15,
+    'Полчаса дежурства на стойке LS': 7.5,
 
     'Проверить электронную заявку': 1,
     'Проверить отчёт ИП': 2,
@@ -3199,7 +3216,9 @@ const DEFAULT_CONFIG = {
 
     'Выдача мед. карты': 2,
     'Дежурство 1 час в рабочее время': 1,
+    'Дежурство полчаса в рабочее время': 2.5,
     'Дежурство 1 час вне рабочее время': 2,
+    'Дежурство полчаса вне рабочее время': 5,
 
     'Участие в поставке': 2,
 
@@ -3207,6 +3226,66 @@ const DEFAULT_CONFIG = {
     'Участие в дежурном психологе': 2,
 
     'Доп. Балы': 1
+  },
+  /* --- Оформление сообщений ботов по блокам (редактируется в админке) ---
+     username — имя бота, avatar — аватар, color — цвет полосы embed,
+     roles — ID ролей для пинга, title — заголовок embed,
+     footer — подпись, content — дополнительный текст сообщения. */
+  botMessages: {
+    weekly: {
+      username: 'Еженедельный отчёт',
+      avatar: 'https://ems.celleste.site/avatar.jpg',
+      color: '#b6e04d',
+      roles: ['745515563333189632', '745515556873961552'],
+      title: 'Еженедельный отчёт',
+      footer: 'By Celleste · Отчётная система ИП',
+      content: ''
+    },
+    promotion: {
+      username: 'Отчет на повышение',
+      avatar: 'https://ems.celleste.site/avatar.jpg',
+      color: '#b6e04d',
+      roles: ['745515563333189632', '745515556873961552'],
+      title: 'Отчет на повышение',
+      footer: 'By Celleste · Отчётная система ИП',
+      content: ''
+    },
+    night: {
+      username: 'Ночная активность',
+      avatar: 'https://ems.celleste.site/avatar.jpg',
+      color: '#b6e04d',
+      roles: ['745515563333189632', '745515556873961552'],
+      title: 'Ночная активность',
+      footer: 'By Celleste · Отчётная система ИП',
+      content: ''
+    },
+    stat: {
+      username: 'Запись на стажировку',
+      avatar: 'https://ems.celleste.site/avatar.jpg',
+      color: '#b6e04d',
+      roles: ['745515563333189632', '745515556873961552', '1199645295760388118'],
+      title: 'Запись на стажировку',
+      footer: 'By Celleste · Отчётная система ИП',
+      content: ''
+    },
+    intern: {
+      username: 'Отчёт о стажировке',
+      avatar: 'https://ems.celleste.site/avatar.jpg',
+      color: '#b6e04d',
+      roles: ['745515563333189632', '745515556873961552'],
+      title: 'Отчёт о стажировке',
+      footer: 'By Celleste · Отчётная система ИП',
+      content: ''
+    },
+    unfit: {
+      username: 'Профнепригодность',
+      avatar: 'https://ems.celleste.site/avatar.jpg',
+      color: '#ff6a6a',
+      roles: ['745515563333189632', '745515556873961552'],
+      title: 'Профнепригодность',
+      footer: 'By Celleste · Отчётная система ИП',
+      content: ''
+    }
   },
   categories: {
     'Отдел ИП': [
@@ -3223,7 +3302,9 @@ const DEFAULT_CONFIG = {
       'Укол от наркозависимости',
       'Участие в МП',
       'Участие в ГМП',
-      'Помощь на поставке'
+      'Помощь на поставке',
+      'Один час дежурства на стойке LS',
+      'Полчаса дежурства на стойке LS'
     ],
     'Ассистент ИП': [
       'Проверить электронную заявку',
@@ -3244,7 +3325,9 @@ const DEFAULT_CONFIG = {
     'Отдел СШ': [
       'Выдача мед. карты',
       'Дежурство 1 час в рабочее время',
-      'Дежурство 1 час вне рабочее время'
+      'Дежурство полчаса в рабочее время',
+      'Дежурство 1 час вне рабочее время',
+      'Дежурство полчаса вне рабочее время'
     ],
     'Отдел ОП': ['Участие в поставке'],
     'Психолог': ['Проведенный сеанс с гражданином', 'Участие в дежурном психологе'],
@@ -3506,6 +3589,6 @@ function clearReports() {
 }
     </script>
     <!-- INLINE_SCRIPTS_END -->
-  <script src="app.js?v=18b387c3" async></script>
+  <script src="app.js?v=28a13894" async></script>
 </body>
 </html>

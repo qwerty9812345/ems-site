@@ -1570,8 +1570,50 @@ const UNFIT_WEBHOOK_BRAND = {
 };
 const UNFIT_PHOTO_NAME = 'photo.jpg';
 
+/* ---- Оформление сообщений ботов: настройки из конфига с фолбэком на дефолт ---- */
+function resolveBotMessage(block, source) {
+  const cfg = source || CONFIG || {};
+  const stored = (cfg.botMessages && cfg.botMessages[block]) || {};
+  const def = (DEFAULT_CONFIG.botMessages && DEFAULT_CONFIG.botMessages[block]) || {};
+  const pick = (key) => {
+    if (stored[key] !== undefined && stored[key] !== null) return stored[key];
+    return def[key] !== undefined ? def[key] : '';
+  };
+  const roles = Array.isArray(stored.roles) ? stored.roles : (Array.isArray(def.roles) ? def.roles : []);
+  return {
+    username: String(pick('username') || '').trim(),
+    avatar: String(pick('avatar') || '').trim(),
+    color: String(pick('color') || '#b6e04d').trim(),
+    title: String(pick('title') || ''),
+    footer: String(pick('footer') || ''),
+    content: String(pick('content') || ''),
+    roles: roles.map(r => String(r).trim()).filter(r => /^\d{15,25}$/.test(r)).slice(0, 10)
+  };
+}
+
+function botMessageSettings(block) {
+  return resolveBotMessage(block, CONFIG);
+}
+
+function botColor(value) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(value || '').trim());
+  return m ? parseInt(m[1], 16) : 0xb6e04d;
+}
+
+/* В content сначала пинги, затем дополнительный текст из админки. */
+function botMessageContent(ui) {
+  const mentions = ui.roles.map(id => `<@&${id}>`).join(' ');
+  return [mentions, ui.content].filter(Boolean).join('\n');
+}
+
+function botMessageFooter(ui) {
+  if (!ui.footer) return undefined;
+  return { text: ui.footer, ...(ui.avatar ? { icon_url: ui.avatar } : {}) };
+}
+
 function buildPromotionMessage(report) {
-  const ACCENT = 0xb6e04d;
+  const ui = botMessageSettings('promotion');
+  const ACCENT = botColor(ui.color);
   const esc = s => String(s == null ? '' : s).replace(/([\\_*~`|])/g, '\\$1');
 
   const lines = [];
@@ -1608,9 +1650,9 @@ function buildPromotionMessage(report) {
   lines.push(`**Общее кол-во баллов:** \`${report.totalPoints}\``);
 
   const head = {
-    title: 'Отчет на повышение',
+    title: ui.title || 'Отчет на повышение',
     color: ACCENT,
-    footer: PROMO_FOOTER,
+    footer: botMessageFooter(ui),
     timestamp: report.createdAt
   };
 
@@ -1623,17 +1665,19 @@ function buildPromotionMessage(report) {
   if (current) embeds.push(current);
 
   return {
-    ...PROMO_WEBHOOK_BRAND,
-    content: PROMO_MENTION_ROLES.map(id => `<@&${id}>`).join(' '),
-    allowed_mentions: { parse: [], roles: PROMO_MENTION_ROLES.slice() },
+    username: ui.username || PROMO_WEBHOOK_BRAND.username,
+    avatar_url: ui.avatar || PROMO_WEBHOOK_BRAND.avatar_url,
+    content: botMessageContent(ui),
+    allowed_mentions: { parse: [], roles: ui.roles.slice() },
     embeds: embeds.map((chunk, i) => i === 0
       ? { ...head, description: chunk }
-      : { ...head, title: 'Отчет на повышение (продолжение)', footer: undefined, description: chunk })
+      : { ...head, title: (ui.title || 'Отчет на повышение') + ' (продолжение)', footer: undefined, description: chunk })
   };
 }
 
 function buildWeeklyMessage(report) {
-  const ACCENT = 0xb6e04d;
+  const ui = botMessageSettings('weekly');
+  const ACCENT = botColor(ui.color);
   const esc = s => String(s == null ? '' : s).replace(/([\\_*~`|])/g, '\\$1');
 
   const lines = [];
@@ -1655,9 +1699,9 @@ function buildWeeklyMessage(report) {
   lines.push(`**Общее кол-во баллов:** \`${report.totalPoints}\``);
 
   const head = {
-    title: 'Еженедельный отчёт',
+    title: ui.title || 'Еженедельный отчёт',
     color: ACCENT,
-    footer: WEEKLY_FOOTER,
+    footer: botMessageFooter(ui),
     timestamp: report.createdAt
   };
 
@@ -1670,17 +1714,19 @@ function buildWeeklyMessage(report) {
   if (current) embeds.push(current);
 
   return {
-    ...WEEKLY_WEBHOOK_BRAND,
-    content: WEEKLY_MENTION_ROLES.map(id => `<@&${id}>`).join(' '),
-    allowed_mentions: { parse: [], roles: WEEKLY_MENTION_ROLES.slice() },
+    username: ui.username || WEEKLY_WEBHOOK_BRAND.username,
+    avatar_url: ui.avatar || WEEKLY_WEBHOOK_BRAND.avatar_url,
+    content: botMessageContent(ui),
+    allowed_mentions: { parse: [], roles: ui.roles.slice() },
     embeds: embeds.map((chunk, i) => i === 0
       ? { ...head, description: chunk }
-      : { ...head, title: 'Еженедельный отчёт (продолжение)', footer: undefined, description: chunk })
+      : { ...head, title: (ui.title || 'Еженедельный отчёт') + ' (продолжение)', footer: undefined, description: chunk })
   };
 }
 
 function buildNightMessage(report) {
-  const ACCENT = 0xb6e04d;
+  const ui = botMessageSettings('night');
+  const ACCENT = botColor(ui.color);
   const esc = s => String(s == null ? '' : s).replace(/([\\_*~`|])/g, '\\$1');
 
   const lines = [];
@@ -1710,9 +1756,9 @@ function buildNightMessage(report) {
   lines.push(`**Общее кол-во баллов:** \`${report.totalPoints}\``);
 
   const head = {
-    title: 'Ночная активность',
+    title: ui.title || 'Ночная активность',
     color: ACCENT,
-    footer: NIGHT_FOOTER,
+    footer: botMessageFooter(ui),
     timestamp: report.createdAt
   };
   const embeds = [];
@@ -1724,19 +1770,21 @@ function buildNightMessage(report) {
   if (current) embeds.push(current);
 
   return {
-    ...NIGHT_WEBHOOK_BRAND,
-    content: NIGHT_MENTION_ROLES.map(id => `<@&${id}>`).join(' '),
-    allowed_mentions: { parse: [], roles: NIGHT_MENTION_ROLES.slice() },
+    username: ui.username || NIGHT_WEBHOOK_BRAND.username,
+    avatar_url: ui.avatar || NIGHT_WEBHOOK_BRAND.avatar_url,
+    content: botMessageContent(ui),
+    allowed_mentions: { parse: [], roles: ui.roles.slice() },
     embeds: embeds.map((chunk, i) => {
       const base = { ...head, description: chunk };
-      if (i > 0) { base.title = 'Ночная активность (продолжение)'; base.footer = undefined; }
+      if (i > 0) { base.title = (ui.title || 'Ночная активность') + ' (продолжение)'; base.footer = undefined; }
       return base;
     }).concat(shotEmbeds)
   };
 }
 
 function buildStatMessage(report) {
-  const ACCENT = 0xb6e04d;
+  const ui = botMessageSettings('stat');
+  const ACCENT = botColor(ui.color);
   const esc = s => String(s == null ? '' : s).replace(/([\\_*~`|])/g, '\\$1');
 
   const lines = [];
@@ -1753,9 +1801,9 @@ function buildStatMessage(report) {
   lines.push(`> ${esc(report.prefTime) || '—'}`);
 
   const head = {
-    title: 'Запись на стажировку',
+    title: ui.title || 'Запись на стажировку',
     color: ACCENT,
-    footer: STAT_FOOTER,
+    footer: botMessageFooter(ui),
     timestamp: report.createdAt
   };
 
@@ -1768,17 +1816,19 @@ function buildStatMessage(report) {
   if (current) embeds.push(current);
 
   return {
-    ...STAT_WEBHOOK_BRAND,
-    content: STAT_MENTION_ROLES.map(id => `<@&${id}>`).join(' '),
-    allowed_mentions: { parse: [], roles: STAT_MENTION_ROLES.slice() },
+    username: ui.username || STAT_WEBHOOK_BRAND.username,
+    avatar_url: ui.avatar || STAT_WEBHOOK_BRAND.avatar_url,
+    content: botMessageContent(ui),
+    allowed_mentions: { parse: [], roles: ui.roles.slice() },
     embeds: embeds.map((chunk, i) => i === 0
       ? { ...head, description: chunk }
-      : { ...head, title: 'Запись на стажировку (продолжение)', footer: undefined, description: chunk })
+      : { ...head, title: (ui.title || 'Запись на стажировку') + ' (продолжение)', footer: undefined, description: chunk })
   };
 }
 
 function buildInternMessage(report) {
-  const ACCENT = 0xb6e04d;
+  const ui = botMessageSettings('intern');
+  const ACCENT = botColor(ui.color);
   const esc = s => String(s == null ? '' : s).replace(/([\\_*~`|])/g, '\\$1');
 
   const lines = [];
@@ -1794,22 +1844,24 @@ function buildInternMessage(report) {
   lines.push(`Результат: ${esc(report.result) || '—'}`);
 
   const head = {
-    title: 'Отчёт о стажировке',
+    title: ui.title || 'Отчёт о стажировке',
     color: ACCENT,
-    footer: INTERN_FOOTER,
+    footer: botMessageFooter(ui),
     timestamp: report.createdAt
   };
 
   return {
-    ...INTERN_WEBHOOK_BRAND,
-    content: INTERN_MENTION_ROLES.map(id => `<@&${id}>`).join(' '),
-    allowed_mentions: { parse: [], roles: INTERN_MENTION_ROLES.slice() },
+    username: ui.username || INTERN_WEBHOOK_BRAND.username,
+    avatar_url: ui.avatar || INTERN_WEBHOOK_BRAND.avatar_url,
+    content: botMessageContent(ui),
+    allowed_mentions: { parse: [], roles: ui.roles.slice() },
     embeds: [{ ...head, description: lines.join('\n') }]
   };
 }
 
 function buildUnfitMessage(report) {
-  const ACCENT = 0xff6a6a;
+  const ui = botMessageSettings('unfit');
+  const ACCENT = botColor(ui.color);
   const esc = s => String(s == null ? '' : s).replace(/([\\_*~`|])/g, '\\$1');
 
   const idOk = /^\d{15,25}$/.test(String(report.employeeId || ''));
@@ -1832,9 +1884,9 @@ function buildUnfitMessage(report) {
   lines.push(`Фото: ${report.photoData ? 'во вложении' : (report.photo ? report.photo : '—')}`);
 
   const head = {
-    title: 'Профнепригодность',
+    title: ui.title || 'Профнепригодность',
     color: ACCENT,
-    footer: UNFIT_FOOTER,
+    footer: botMessageFooter(ui),
     timestamp: report.createdAt
   };
 
@@ -1843,12 +1895,13 @@ function buildUnfitMessage(report) {
   if (report.photoData) head.image = { url: 'attachment://' + UNFIT_PHOTO_NAME };
   else if (report.photo) head.image = { url: report.photo };
 
-  const allowedMentions = { parse: [], roles: UNFIT_MENTION_ROLES.slice() };
+  const allowedMentions = { parse: [], roles: ui.roles.slice() };
   if (reporterOk) allowedMentions.users = [report.reporterId];
 
   return {
-    ...UNFIT_WEBHOOK_BRAND,
-    content: UNFIT_MENTION_ROLES.map(id => `<@&${id}>`).join(' '),
+    username: ui.username || UNFIT_WEBHOOK_BRAND.username,
+    avatar_url: ui.avatar || UNFIT_WEBHOOK_BRAND.avatar_url,
+    content: botMessageContent(ui),
     allowed_mentions: allowedMentions,
     embeds: [{ ...head, description: lines.join('\n') }]
   };
@@ -2456,6 +2509,7 @@ function renderAdminEditor() {
   renderAdminQuiz();
   renderAdminPremium();
   renderAdminSend();
+  renderAdminMessages();
   renderAdminReports();
   renderAdminData();
 
@@ -3498,6 +3552,224 @@ function renderAdminSend() {
   refreshAllWebhookStatus();
 }
 
+/* ---- Оформление сообщений ботов: вкладка «Сообщения» ---- */
+const BOT_MESSAGE_BLOCKS = [
+  { id: 'weekly', label: '01 · Еженедельный отчёт' },
+  { id: 'promotion', label: '02 · Отчёт на повышение' },
+  { id: 'night', label: '03 · Ночная активность' },
+  { id: 'stat', label: '04 · Запись на стажировку' },
+  { id: 'intern', label: '06 · Отчёт о стажировке' },
+  { id: 'unfit', label: '07 · Профнепригодность' }
+];
+
+/* Примерные строки для предпросмотра — реальные данные подставятся при отправке. */
+const BOT_PREVIEW_SAMPLES = {
+  weekly: [
+    '**Имя фамилия**', '> Иван Иванов', '',
+    '**Период подачи отчёта**', '> 03.11 – 09.11', '',
+    '**Пункты:**', '**Провести осмотр**', '[10](ссылка) | 10 баллов', '',
+    '**Общее кол-во баллов:** `42`'
+  ],
+  promotion: [
+    '**Имя фамилия**', '> Иван Иванов', '',
+    '**С какого на какой ранг**', '> 3 → 4', '',
+    '**Пункты:**', '**Участие в наборах граждан в ряды EMS**', '[2](ссылка) | 30 баллов', '',
+    '**Общее кол-во баллов:** `30`'
+  ],
+  night: [
+    '**Имя фамилия**', '> Иван Иванов', '',
+    '**Период активности**', '> 03.11 – 09.11', '',
+    '**Пункты:**', '**Участие в ночных наборах граждан в ряды EMS**', '[1](ссылка) | 20 баллов', '',
+    '**Общее кол-во баллов:** `20`'
+  ],
+  stat: [
+    '**Имя фамилия**', '> Иван Иванов', '',
+    '**ID пользователя (Discord)**', '> 123456789012345678', '',
+    '**Ссылка на присутствие в наборе в EMS**', '> ссылка', '',
+    '**Удобное для вас время прохождения стажировки**', '> после 18:00'
+  ],
+  intern: [
+    'Принимал:', '@Иван Иванов', '',
+    'Сдавал:', '@Пётр Петров', '',
+    'Результат: Сдал'
+  ],
+  unfit: [
+    'Отправил', '@Иван Иванов', '',
+    'Сотрудник', '@Пётр Петров', '',
+    'ФИ сотрудника:', 'Пётр Петров',
+    'Паспорт Сотрудника:', '123456',
+    'Дата последнего повышения:', '01.11.2026',
+    'Ранг Сотрудника:', '3',
+    'Фото: во вложении'
+  ]
+};
+
+function ensureBotMessages(c) {
+  c.botMessages = c.botMessages && typeof c.botMessages === 'object' ? c.botMessages : {};
+  BOT_MESSAGE_BLOCKS.forEach(m => {
+    const def = (DEFAULT_CONFIG.botMessages && DEFAULT_CONFIG.botMessages[m.id]) || {};
+    const cur = c.botMessages[m.id] && typeof c.botMessages[m.id] === 'object' ? c.botMessages[m.id] : {};
+    c.botMessages[m.id] = Object.assign(deepClone(def), cur);
+    if (!Array.isArray(c.botMessages[m.id].roles)) {
+      c.botMessages[m.id].roles = Array.isArray(def.roles) ? def.roles.slice() : [];
+    }
+  });
+}
+
+function botPreviewHtml(block, ui) {
+  const rolePills = ui.roles
+    .map(id => `<span class="ann-pv-role">@${escapeHtml(announceRoleName(id))}</span>`)
+    .join('');
+  const cta = ui.content ? `<div class="ann-pv-cta">${announceMdInline(ui.content)}</div>` : '';
+  const title = ui.title ? `<div class="ann-pv-title">${announceMdInline(ui.title)}</div>` : '';
+  const foot = ui.footer ? `<div class="ann-pv-foot"><span>${announceMdInline(ui.footer)}</span></div>` : '';
+  const body = (BOT_PREVIEW_SAMPLES[block] || [])
+    .map(line => `<div class="bot-pv-line">${announceMdInline(line) || '&nbsp;'}</div>`)
+    .join('');
+  const avatar = ui.avatar
+    ? `<img src="${escapeHtml(ui.avatar)}" alt="">`
+    : '';
+  return `
+    <div class="ann-pv-head">
+      <span class="ann-pv-avatar">${avatar}</span>
+      <span class="ann-pv-name">${escapeHtml(ui.username || 'Бот')}</span>
+      <span class="ann-pv-app">APP</span>
+      <span class="ann-pv-time">сегодня</span>
+    </div>
+    <div class="ann-pv-body">
+      <div class="ann-pv-roles">${rolePills}</div>
+      ${cta}
+      <div class="ann-pv-embed" style="border-left-color:${escapeHtml(ui.color)}">
+        <div class="ann-pv-embed-in">
+          ${title}
+          <div class="ann-pv-list">${body}</div>
+          ${foot}
+        </div>
+      </div>
+    </div>`;
+}
+
+function botMessageSectionHtml(meta) {
+  const ui = resolveBotMessage(meta.id, editedConfig);
+  const roles = ui.roles.map(id =>
+    `<span class="bot-role-chip">@${escapeHtml(announceRoleName(id))}<button type="button" data-bot-role-remove="${id}" title="Убрать пинг">×</button></span>`
+  ).join('');
+  return `
+    <div class="a-section" data-bot-block="${meta.id}">
+      <h4>${escapeHtml(meta.label)}</h4>
+      <div class="a-hint">Имя бота, аватар, цвет полосы, заголовок, подпись, дополнительный текст и пинги ролей. Пустое поле — значение по умолчанию.</div>
+      <div class="bot-msg-grid">
+        <label>Имя бота<input type="text" id="botName_${meta.id}" value="${escapeHtml(ui.username)}"></label>
+        <label>Аватар (URL)<input type="text" id="botAvatar_${meta.id}" value="${escapeHtml(ui.avatar)}"></label>
+        <label>Цвет полосы<input type="color" id="botColor_${meta.id}" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(ui.color) ? ui.color : '#b6e04d')}"></label>
+        <label>Заголовок embed<input type="text" id="botTitle_${meta.id}" value="${escapeHtml(ui.title)}"></label>
+        <label>Подпись (footer)<input type="text" id="botFooter_${meta.id}" value="${escapeHtml(ui.footer)}"></label>
+        <label>Доп. текст сообщения<input type="text" id="botContent_${meta.id}" value="${escapeHtml(ui.content)}"></label>
+      </div>
+      <div class="a-hint" style="margin-top:12px">Пинги ролей</div>
+      <div class="bot-role-list" id="botRoles_${meta.id}">${roles || '<span class="a-hint">Пингов нет</span>'}</div>
+      <div class="bot-role-add">
+        <input type="text" id="botRoleAdd_${meta.id}" placeholder="ID роли или <@&123456789012345678>">
+        <button type="button" class="a-btn sec" id="botRoleAddBtn_${meta.id}">Добавить роль</button>
+        <button type="button" class="a-btn danger" id="botReset_${meta.id}">Сбросить</button>
+      </div>
+      <div class="a-hint" style="margin-top:14px">Предпросмотр сообщения</div>
+      <div class="ann-preview" id="botPreview_${meta.id}" style="margin-top:8px"></div>
+    </div>`;
+}
+
+function renderBotPreview(block) {
+  const el = $('botPreview_' + block);
+  if (!el) return;
+  el.innerHTML = botPreviewHtml(block, resolveBotMessage(block, editedConfig));
+}
+
+function renderAdminMessages() {
+  const root = document.querySelector('#tabMessages .admin-scroll');
+  if (!root) return;
+  ensureBotMessages(editedConfig);
+  root.innerHTML =
+    `<div class="a-section">
+      <h4>Сообщения ботов</h4>
+      <div class="a-hint">
+        У каждого блока своё оформление: имя и аватар бота, цвет карточки, заголовок, подпись,
+        дополнительный текст и роли для пинга. Изменения применяются после «Сохранить изменения»
+        и публикуются для всех пользователей.
+      </div>
+    </div>` +
+    BOT_MESSAGE_BLOCKS.map(botMessageSectionHtml).join('');
+
+  BOT_MESSAGE_BLOCKS.forEach(meta => {
+    const block = meta.id;
+    const fields = { Name: 'username', Avatar: 'avatar', Title: 'title', Footer: 'footer', Content: 'content' };
+    Object.keys(fields).forEach(suffix => {
+      const el = $('bot' + suffix + '_' + block);
+      if (!el) return;
+      el.addEventListener('input', () => {
+        editedConfig.botMessages[block][fields[suffix]] = el.value;
+        renderBotPreview(block);
+      });
+    });
+
+    const colorEl = $('botColor_' + block);
+    if (colorEl) {
+      colorEl.addEventListener('input', () => {
+        editedConfig.botMessages[block].color = colorEl.value;
+        renderBotPreview(block);
+      });
+    }
+
+    const addInput = $('botRoleAdd_' + block);
+    const addBtn = $('botRoleAddBtn_' + block);
+    const addRoles = () => {
+      const found = [];
+      const re = /<@&?(\d{15,25})>|(\d{15,25})/g;
+      let m;
+      while ((m = re.exec(addInput.value || ''))) {
+        const id = m[1] || m[2];
+        if (found.indexOf(id) === -1) found.push(id);
+      }
+      if (!found.length) {
+        toast('Не добавлено', 'Вставьте ID роли или упоминание <@&…>.', 'error');
+        return;
+      }
+      const list = editedConfig.botMessages[block].roles || [];
+      found.forEach(id => { if (list.indexOf(id) === -1) list.push(id); });
+      editedConfig.botMessages[block].roles = list;
+      addInput.value = '';
+      renderAdminMessages();
+      toast('Роль добавлена', found.length + ' шт.');
+    };
+    if (addBtn) addBtn.onclick = addRoles;
+    if (addInput) addInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); addRoles(); }
+    });
+
+    const listEl = $('botRoles_' + block);
+    if (listEl) {
+      listEl.onclick = e => {
+        const btn = e.target.closest('[data-bot-role-remove]');
+        if (!btn) return;
+        const id = btn.getAttribute('data-bot-role-remove');
+        editedConfig.botMessages[block].roles =
+          (editedConfig.botMessages[block].roles || []).filter(r => r !== id);
+        renderAdminMessages();
+      };
+    }
+
+    const resetBtn = $('botReset_' + block);
+    if (resetBtn) {
+      resetBtn.onclick = () => {
+        editedConfig.botMessages[block] = deepClone(DEFAULT_CONFIG.botMessages[block]);
+        renderAdminMessages();
+        toast('Сброшено', 'Блок вернулся к стандартному оформлению.');
+      };
+    }
+  });
+
+  BOT_MESSAGE_BLOCKS.forEach(meta => renderBotPreview(meta.id));
+}
+
 /* ---- Анонс наборов: собрать сообщение и отправить в Discord ---- */
 const ANNOUNCE_PRESETS_DEFAULT = ['13:00 – 13:40', '15:00 – 15:40', '17:00 – 17:40'];
 const ANNOUNCE_PRESETS_KEY = 'ems.announce.presets';
@@ -3583,7 +3855,7 @@ function setAnnounceLast(id, pollId) {
 
 function announceRoleName(id) {
   const key = String(id || '');
-  return ANNOUNCE_ROLE_NAMES[key] || ('роль ' + key.slice(-4));
+  return ANNOUNCE_ROLE_NAMES[key] || key;
 }
 
 /* Разбор ручного ввода: «13:00 – 13:40», «13:00-13:40», «1300-1340», «13:00», «1300». */
