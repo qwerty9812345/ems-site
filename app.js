@@ -1521,7 +1521,7 @@ async function postToProxy(slot, payload, file, sheet, opts) {
 }
 
 /* ---- Отчёт на повышение ИП: роли для упоминаний и оформление вебхука ---- */
-const PROMO_MENTION_ROLES = ['745515563333189632', '745515556873961552', '745319702183804951'];
+const PROMO_MENTION_ROLES = ['745515563333189632', '745515556873961552'];
 const PROMO_AVATAR = 'https://ems.celleste.site/avatar.jpg';
 const PROMO_FOOTER = { text: 'By Celleste · Отчётная система ИП', icon_url: PROMO_AVATAR };
 const PROMO_WEBHOOK_BRAND = {
@@ -1546,7 +1546,7 @@ const NIGHT_WEBHOOK_BRAND = {
 };
 
 /* ---- Запись на стажировку: роли для упоминаний и оформление вебхука ---- */
-const STAT_MENTION_ROLES = ['745515563333189632', '745515556873961552', '745319702183804951'];
+const STAT_MENTION_ROLES = ['745515563333189632', '745515556873961552', '1199645295760388118'];
 const STAT_FOOTER = PROMO_FOOTER;
 const STAT_WEBHOOK_BRAND = {
   username: 'Запись на стажировку',
@@ -3502,11 +3502,13 @@ function renderAdminSend() {
 const ANNOUNCE_PRESETS_DEFAULT = ['13:00 – 13:40', '15:00 – 15:40', '17:00 – 17:40'];
 const ANNOUNCE_PRESETS_KEY = 'ems.announce.presets';
 const ANNOUNCE_LAST_KEY = 'ems.announce.last';
-const ANNOUNCE_DEFAULT_ROLES = ['745515563333189632', '745515556873961552', '745319702183804951'];
+const ANNOUNCE_DEFAULT_ROLES = ['784494588051193906', '784777068521062410', '745319702183804951'];
 const ANNOUNCE_ROLE_NAMES = {
   '745515563333189632': 'Отдел ИП',
   '745515556873961552': 'Стажёр ИП',
-  '745319702183804951': 'Министерство Здравоохранения'
+  '745319702183804951': 'Министерство Здравоохранения',
+  '784494588051193906': 'Старший состав',
+  '784777068521062410': 'Руководство ИП'
 };
 const ANNOUNCE_POLL_MAX = 10;
 const ANNOUNCE_DEFAULT_HEADER = '**📅 Наборы — {date}**';
