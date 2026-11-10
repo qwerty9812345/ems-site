@@ -5184,6 +5184,7 @@ async function copyPremiumText() {
 }
 
 const AUTH_TOKEN_KEY = 'ems.auth.token';
+const HOST_TOKEN_PREFIX = 'ems.auth.host.';
 
 function getAuthToken() {
   try { return localStorage.getItem(AUTH_TOKEN_KEY) || ''; } catch (e) { return ''; }
@@ -5196,9 +5197,66 @@ function setAuthToken(token) {
   } catch (e) {}
 }
 
+/* На Vercel и Cloudflare могут быть разные ADMIN_SECRET, поэтому у каждого
+   хоста держим собственный токен, полученный тем же паролем на месте. */
+function hostTokenKey(host) {
+  try { return HOST_TOKEN_PREFIX + new URL(host).host; }
+  catch (e) { return HOST_TOKEN_PREFIX + String(host || ''); }
+}
+
+function getHostToken(host) {
+  try { return localStorage.getItem(hostTokenKey(host)) || getAuthToken(); }
+  catch (e) { return getAuthToken(); }
+}
+
+function setHostToken(host, token) {
+  try {
+    const key = hostTokenKey(host);
+    if (token) localStorage.setItem(key, token);
+    else localStorage.removeItem(key);
+  } catch (e) {}
+}
+
+async function primeHostTokens(password) {
+  if (!password) return { ok: false, code: 'no_secret', results: [] };
+  const targets = settingsSyncTargets();
+  const results = await Promise.all(targets.map(async host => {
+    try {
+      const res = await fetchWithTimeout(host + '/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      }, 10000);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && data.ok && data.token) {
+        setHostToken(host, data.token);
+        return { host, ok: true };
+      }
+      /* Явный отказ — сбрасываем старый токен; при сетевой ошибке оставляем. */
+      if (res.ok || res.status === 401 || res.status === 403 || res.status === 503) setHostToken(host, '');
+      return { host, ok: false, code: (data && data.code) || ('http_' + res.status) };
+    } catch (e) {
+      return { host, ok: false, code: 'network', detail: String((e && e.message) || e) };
+    }
+  }));
+  return { ok: results.some(r => r.ok), results };
+}
+
 function authHeader() {
   const token = getAuthToken();
   return token ? { Authorization: 'Bearer ' + token } : {};
+}
+
+/* Зеркало может не отвечать — не подвешиваем вход и сохранение настроек. */
+async function fetchWithTimeout(url, options, timeoutMs) {
+  if (typeof AbortController === 'undefined') return fetch(url, options);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, timeoutMs || 10000);
+  try {
+    return await fetch(url, Object.assign({}, options || {}, { signal: ctrl.signal }));
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /* Меняем пароль на короткоживущий токен (24 ч). Сам пароль в браузере не сохраняется. */
@@ -5225,9 +5283,20 @@ async function saveAdminSecret() {
   if (status) status.textContent = 'Проверка…';
   const outcome = await acquireAuthToken(password);
   if (outcome.ok) {
+    if (status) status.textContent = 'Проверка зеркал…';
+    const primed = await primeHostTokens(password);
     if (input) input.value = '';
-    if (status) status.textContent = 'Доступ подтверждён (действует 24 часа).';
-    toast('Доступ подтверждён', 'Токен действителен 24 часа.');
+    const failedHosts = (primed.results || []).filter(r => !r.ok).map(r => {
+      try { return new URL(r.host).host; } catch (e) { return r.host; }
+    });
+    if (status) {
+      status.textContent = failedHosts.length
+        ? 'Доступ подтверждён (24 часа), но зеркало не приняло пароль: ' + failedHosts.join(', ')
+        : 'Доступ подтверждён (действует 24 часа).';
+    }
+    toast('Доступ подтверждён', failedHosts.length
+      ? 'Основной сервер доступен, зеркало — нет.'
+      : 'Токен действителен 24 часа, зеркала синхронизированы.');
   } else {
     const messages = {
       unauthorized: 'Неверный секрет сервера.',
@@ -5259,8 +5328,9 @@ async function syncRemoteConfig() {
 }
 
 /* ---- Автосинхронизация настроек: Vercel ↔ Cloudflare Pages ----
-   Оба API подписаны одним секретом, поэтому один токен подходит для обоих.
-   Сохраняем настройки сразу в оба хранилища, чтобы зеркала не расходились. */
+   Сохраняем настройки сразу в оба хранилища, чтобы зеркала не расходились.
+   Секреты на хостах могут отличаться, поэтому при входе получаем токен
+   для каждого домена отдельно (primeHostTokens). */
 const SETTINGS_SYNC_HOSTS = ['https://ems.celleste.site', 'https://ems-ip.pages.dev'];
 
 function settingsSyncTargets() {
@@ -5297,12 +5367,21 @@ async function syncSettingsPost(path, body) {
   const targets = settingsSyncTargets();
   const results = await Promise.all(targets.map(async host => {
     try {
-      const res = await fetch(host + path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json().catch(() => null);
+      const hostToken = getHostToken(host) || token;
+      const postWith = async (bearer) => {
+        const res = await fetchWithTimeout(host + path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + bearer },
+          body: JSON.stringify(body)
+        }, 15000);
+        const data = await res.json().catch(() => null);
+        return { res, data };
+      };
+      let { res, data } = await postWith(hostToken);
+      /* Токен зеркала мог устареть — пробуем основной, если он отличается. */
+      if (res.status === 401 && hostToken !== token) {
+        ({ res, data } = await postWith(token));
+      }
       return {
         host,
         ok: !!(data && data.ok),
