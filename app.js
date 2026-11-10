@@ -6,6 +6,25 @@ window.__EMS_BOOTED = true;
 
 let CONFIG = loadConfig();
 
+/* Разовая миграция: раньше у блока «Профнепригодность» полоса была красной.
+   Теперь у всех сообщений единый зелёный акцент. */
+(function migrateBotColors() {
+  try {
+    const key = 'ems.bot.colors.green.v1';
+    if (localStorage.getItem(key)) return;
+    if (CONFIG && CONFIG.botMessages) {
+      Object.keys(CONFIG.botMessages).forEach(id => {
+        const item = CONFIG.botMessages[id];
+        if (item && String(item.color || '').toLowerCase() === '#ff6a6a') {
+          item.color = '#b6e04d';
+        }
+      });
+      persistConfig(CONFIG);
+    }
+    localStorage.setItem(key, '1');
+  } catch (e) {}
+})();
+
 /* Основной сайт живёт на Vercel и сам обслуживает /api. Зеркало на GitHub Pages
    серверной части не имеет, поэтому обращается к API основного домена.
    Если провайдер режет один адрес, пробуем резервный адрес того же проекта. */
@@ -3562,41 +3581,55 @@ const BOT_MESSAGE_BLOCKS = [
   { id: 'unfit', label: '07 · Профнепригодность' }
 ];
 
+/* Палитра для кастомного выбора цвета полосы (в стиле сайта). */
+const BOT_COLOR_PRESETS = [
+  '#b6e04d', '#7be495', '#5ad1ff', '#a0b4ff',
+  '#c78bff', '#ff8fb1', '#ffc454', '#ffb86b',
+  '#ff6a6a', '#f6f1e9'
+];
+const BOT_COLOR_DEFAULT = '#b6e04d';
+
+function botNormalizeHex(value) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(value || '').trim());
+  return m ? '#' + m[1].toLowerCase() : '';
+}
+
+
 /* Примерные строки для предпросмотра — реальные данные подставятся при отправке. */
 const BOT_PREVIEW_SAMPLES = {
   weekly: [
-    '**Имя фамилия**', '> Иван Иванов', '',
+    '**Имя фамилия**', '> Sokrat Celleste', '',
     '**Период подачи отчёта**', '> 03.11 – 09.11', '',
     '**Пункты:**', '**Провести осмотр**', '[10](ссылка) | 10 баллов', '',
     '**Общее кол-во баллов:** `42`'
   ],
   promotion: [
-    '**Имя фамилия**', '> Иван Иванов', '',
+    '**Имя фамилия**', '> Sokrat Celleste', '',
     '**С какого на какой ранг**', '> 3 → 4', '',
     '**Пункты:**', '**Участие в наборах граждан в ряды EMS**', '[2](ссылка) | 30 баллов', '',
     '**Общее кол-во баллов:** `30`'
   ],
   night: [
-    '**Имя фамилия**', '> Иван Иванов', '',
+    '**Имя фамилия**', '> Sokrat Celleste', '',
     '**Период активности**', '> 03.11 – 09.11', '',
     '**Пункты:**', '**Участие в ночных наборах граждан в ряды EMS**', '[1](ссылка) | 20 баллов', '',
     '**Общее кол-во баллов:** `20`'
   ],
   stat: [
-    '**Имя фамилия**', '> Иван Иванов', '',
-    '**ID пользователя (Discord)**', '> 123456789012345678', '',
+    '**Имя фамилия**', '> Sokrat Celleste', '',
+    '**ID пользователя (Discord)**', '> 512137319088783360', '',
     '**Ссылка на присутствие в наборе в EMS**', '> ссылка', '',
     '**Удобное для вас время прохождения стажировки**', '> после 18:00'
   ],
   intern: [
-    'Принимал:', '@Иван Иванов', '',
-    'Сдавал:', '@Пётр Петров', '',
+    'Принимал:', '@Sokrat Celleste', '',
+    'Сдавал:', '@Sokrat Celleste', '',
     'Результат: Сдал'
   ],
   unfit: [
-    'Отправил', '@Иван Иванов', '',
-    'Сотрудник', '@Пётр Петров', '',
-    'ФИ сотрудника:', 'Пётр Петров',
+    'Отправил', '@Sokrat Celleste', '',
+    'Сотрудник', '@Sokrat Celleste', '',
+    'ФИ сотрудника:', 'Sokrat Celleste',
     'Паспорт Сотрудника:', '123456',
     'Дата последнего повышения:', '01.11.2026',
     'Ранг Сотрудника:', '3',
@@ -3649,6 +3682,34 @@ function botPreviewHtml(block, ui) {
     </div>`;
 }
 
+function botColorFieldHtml(meta, rawColor) {
+  const color = botNormalizeHex(rawColor) || BOT_COLOR_DEFAULT;
+  const swatches = BOT_COLOR_PRESETS.map(c => {
+    const active = c.toLowerCase() === color ? ' active' : '';
+    return `<button type="button" class="bot-color-opt${active}" data-bot-color="${c}" style="background:${c}" title="${c}" aria-label="${c}"></button>`;
+  }).join('');
+  return `
+    <div class="bot-msg-field">
+      <span class="bot-msg-label">Цвет полосы</span>
+      <div class="bot-color-field">
+        <button type="button" class="bot-color-btn" id="botColorBtn_${meta.id}" aria-haspopup="true" aria-expanded="false">
+          <span class="bot-color-swatch" id="botColorSwatch_${meta.id}" style="background:${color}"></span>
+          <span class="bot-color-value" id="botColorValue_${meta.id}">${color}</span>
+          <span class="bot-color-caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="bot-color-pop" id="botColorPop_${meta.id}" hidden>
+          <div class="bot-color-grid">${swatches}</div>
+          <div class="bot-color-custom">
+            <input type="text" id="botColorInput_${meta.id}" value="${color}" maxlength="7"
+                   spellcheck="false" autocomplete="off" placeholder="${BOT_COLOR_DEFAULT}">
+            <button type="button" class="a-btn sec" id="botColorApply_${meta.id}">ОК</button>
+          </div>
+          <div class="bot-color-error" id="botColorError_${meta.id}"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
 function botMessageSectionHtml(meta) {
   const ui = resolveBotMessage(meta.id, editedConfig);
   const roles = ui.roles.map(id =>
@@ -3661,7 +3722,7 @@ function botMessageSectionHtml(meta) {
       <div class="bot-msg-grid">
         <label>Имя бота<input type="text" id="botName_${meta.id}" value="${escapeHtml(ui.username)}"></label>
         <label>Аватар (URL)<input type="text" id="botAvatar_${meta.id}" value="${escapeHtml(ui.avatar)}"></label>
-        <label>Цвет полосы<input type="color" id="botColor_${meta.id}" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(ui.color) ? ui.color : '#b6e04d')}"></label>
+        ${botColorFieldHtml(meta, ui.color)}
         <label>Заголовок embed<input type="text" id="botTitle_${meta.id}" value="${escapeHtml(ui.title)}"></label>
         <label>Подпись (footer)<input type="text" id="botFooter_${meta.id}" value="${escapeHtml(ui.footer)}"></label>
         <label>Доп. текст сообщения<input type="text" id="botContent_${meta.id}" value="${escapeHtml(ui.content)}"></label>
@@ -3669,7 +3730,7 @@ function botMessageSectionHtml(meta) {
       <div class="a-hint" style="margin-top:12px">Пинги ролей</div>
       <div class="bot-role-list" id="botRoles_${meta.id}">${roles || '<span class="a-hint">Пингов нет</span>'}</div>
       <div class="bot-role-add">
-        <input type="text" id="botRoleAdd_${meta.id}" placeholder="ID роли или <@&123456789012345678>">
+        <input type="text" id="botRoleAdd_${meta.id}" placeholder="ID роли или <@&512137319088783360>">
         <button type="button" class="a-btn sec" id="botRoleAddBtn_${meta.id}">Добавить роль</button>
         <button type="button" class="a-btn danger" id="botReset_${meta.id}">Сбросить</button>
       </div>
@@ -3688,6 +3749,21 @@ function renderAdminMessages() {
   const root = document.querySelector('#tabMessages .admin-scroll');
   if (!root) return;
   ensureBotMessages(editedConfig);
+
+  /* Клик вне палитры закрывает открытое меню цвета. */
+  if (!renderAdminMessages.outsideBound) {
+    renderAdminMessages.outsideBound = true;
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.bot-color-pop.open').forEach(p => {
+        p.classList.remove('open', 'up');
+        p.hidden = true;
+        const id = String(p.id || '').replace('botColorPop_', '');
+        const btn = id ? $('botColorBtn_' + id) : null;
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      });
+    });
+  }
+
   root.innerHTML =
     `<div class="a-section">
       <h4>Сообщения ботов</h4>
@@ -3711,12 +3787,94 @@ function renderAdminMessages() {
       });
     });
 
-    const colorEl = $('botColor_' + block);
-    if (colorEl) {
-      colorEl.addEventListener('input', () => {
-        editedConfig.botMessages[block].color = colorEl.value;
-        renderBotPreview(block);
+    const colorBtn = $('botColorBtn_' + block);
+    const colorPop = $('botColorPop_' + block);
+    const colorSwatch = $('botColorSwatch_' + block);
+    const colorValue = $('botColorValue_' + block);
+    const colorInput = $('botColorInput_' + block);
+    const colorError = $('botColorError_' + block);
+
+    const closeColorPop = () => {
+      if (!colorPop) return;
+      colorPop.classList.remove('open', 'up');
+      colorPop.hidden = true;
+      if (colorBtn) colorBtn.setAttribute('aria-expanded', 'false');
+    };
+
+    const applyBotColor = (raw, silent) => {
+      const hex = botNormalizeHex(raw);
+      if (!hex) {
+        if (colorError && !silent) colorError.textContent = 'Формат: #b6e04d';
+        return false;
+      }
+      editedConfig.botMessages[block].color = hex;
+      if (colorSwatch) colorSwatch.style.background = hex;
+      if (colorValue) colorValue.textContent = hex;
+      if (colorInput && colorInput.value.toLowerCase() !== hex) colorInput.value = hex;
+      if (colorError) colorError.textContent = '';
+      if (colorPop) {
+        colorPop.querySelectorAll('.bot-color-opt').forEach(opt => {
+          opt.classList.toggle('active',
+            String(opt.getAttribute('data-bot-color') || '').toLowerCase() === hex);
+        });
+      }
+      renderBotPreview(block);
+      return true;
+    };
+
+    if (colorBtn && colorPop) {
+      colorBtn.onclick = e => {
+        e.stopPropagation();
+        const willOpen = colorPop.hidden;
+        document.querySelectorAll('.bot-color-pop.open').forEach(p => {
+          p.classList.remove('open', 'up');
+          p.hidden = true;
+        });
+        document.querySelectorAll('.bot-color-btn[aria-expanded="true"]').forEach(b => {
+          b.setAttribute('aria-expanded', 'false');
+        });
+        if (willOpen) {
+          colorPop.hidden = false;
+          colorPop.classList.add('open');
+          colorBtn.setAttribute('aria-expanded', 'true');
+          /* Если снизу мало места — раскрываем палитру вверх. */
+          const scroller = colorPop.closest('.admin-scroll');
+          const bounds = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+          const rect = colorBtn.getBoundingClientRect();
+          const below = bounds.bottom - rect.bottom;
+          const above = rect.top - bounds.top;
+          colorPop.classList.toggle('up', below < 240 && above > below);
+          if (colorInput) { colorInput.focus(); colorInput.select(); }
+        }
+      };
+      colorPop.addEventListener('click', e => e.stopPropagation());
+      colorPop.querySelectorAll('.bot-color-opt').forEach(opt => {
+        opt.onclick = () => {
+          applyBotColor(opt.getAttribute('data-bot-color'));
+          closeColorPop();
+        };
       });
+    }
+
+    if (colorInput) {
+      colorInput.addEventListener('input', () => applyBotColor(colorInput.value, true));
+      colorInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (applyBotColor(colorInput.value)) closeColorPop();
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeColorPop();
+        }
+      });
+    }
+
+    const colorApply = $('botColorApply_' + block);
+    if (colorApply) {
+      colorApply.onclick = () => {
+        if (applyBotColor(colorInput ? colorInput.value : '')) closeColorPop();
+      };
     }
 
     const addInput = $('botRoleAdd_' + block);
@@ -3776,11 +3934,12 @@ const ANNOUNCE_PRESETS_KEY = 'ems.announce.presets';
 const ANNOUNCE_LAST_KEY = 'ems.announce.last';
 const ANNOUNCE_DEFAULT_ROLES = ['784494588051193906', '784777068521062410', '745319702183804951'];
 const ANNOUNCE_ROLE_NAMES = {
-  '745515563333189632': 'Отдел ИП',
-  '745515556873961552': 'Стажёр ИП',
-  '745319702183804951': 'Министерство Здравоохранения',
-  '784494588051193906': 'Старший состав',
-  '784777068521062410': 'Руководство ИП'
+  '745515563333189632': 'Зав. ИП',
+  '745515556873961552': 'Зам. Зав. ИП',
+  '1199645295760388118': 'Ассистент ИП',
+  '784494588051193906': 'Отдел ИП',
+  '784777068521062410': 'Стажёр ИП',
+  '745319702183804951': 'Министерство Здравоохранения'
 };
 const ANNOUNCE_POLL_MAX = 10;
 const ANNOUNCE_DEFAULT_HEADER = '**📅 Наборы — {date}**';
@@ -4018,23 +4177,20 @@ function announceScheduleAutoAdd() {
 function announceCommitTime() {
   const { from, to } = announceTimePair();
   if (!from || !to) return false;
-  let rawFrom = String(from.value || '').trim();
-  let rawTo = String(to.value || '').trim();
-  if (!rawFrom) {
-    if (!rawTo) return false;
-    from.value = rawTo;
-    rawFrom = rawTo;
-    rawTo = '';
-    to.value = '';
-  }
-  const pFrom = announceParseTime(rawFrom);
-  const pTo = rawTo ? announceParseTime(rawTo) : '';
-  if (!pFrom || (rawTo && !pTo)) {
+  const rawFrom = String(from.value || '').trim();
+  const rawTo = String(to.value || '').trim();
+  /* Набор добавляется только когда заполнены и начало, и конец. */
+  if (!rawFrom || !rawTo) {
     announceUpdateTimeHint();
     return false;
   }
-  const value = pTo ? pFrom + ' – ' + pTo : pFrom;
-  const out = announceAddTime(value, true);
+  const pFrom = announceParseTime(rawFrom);
+  const pTo = announceParseTime(rawTo);
+  if (!pFrom || !pTo) {
+    announceUpdateTimeHint();
+    return false;
+  }
+  const out = announceAddTime(pFrom + ' – ' + pTo, true);
   if (!out.ok) return false;
   from.value = '';
   to.value = '';
@@ -4083,11 +4239,24 @@ function announceUpdateTimeHint() {
   const rawTo = to ? String(to.value || '').trim() : '';
   hint.classList.remove('ok', 'err');
   if (!rawFrom && !rawTo) {
-    hint.textContent = 'Введите 1400 и 1440 — добавится 14:00 – 14:40. Enter тоже работает.';
+    hint.textContent = 'Введите начало и конец: 1400, пробел, затем 1440 — добавится 14:00 – 14:40.';
     return;
   }
   if (/[-–—]\s*$/.test(rawFrom)) {
     hint.textContent = 'Теперь введите конец, например 1440.';
+    return;
+  }
+  if (rawFrom && !rawTo) {
+    const pFromOnly = announceParseTime(rawFrom);
+    hint.textContent = pFromOnly
+      ? 'Это только начало. Введите конец, например 1440, чтобы набор добавился.'
+      : 'Начало: введите время, например 1400.';
+    hint.classList.add('err');
+    return;
+  }
+  if (!rawFrom && rawTo) {
+    hint.textContent = 'Сначала введите начало, например 1400.';
+    hint.classList.add('err');
     return;
   }
   const pFrom = announceParseTime(rawFrom);
@@ -4095,11 +4264,6 @@ function announceUpdateTimeHint() {
   if (!pFrom) {
     hint.textContent = 'Начало: введите время, например 1400.';
     hint.classList.add('err');
-    return;
-  }
-  if (!rawTo) {
-    hint.textContent = 'Получится одиночное время: ' + pFrom + '. Добавьте конец для диапазона.';
-    hint.classList.add('ok');
     return;
   }
   if (!pTo) {
@@ -4408,14 +4572,22 @@ async function announceSaveSettings() {
   if (!header) { if (status) status.textContent = 'Заголовок не может быть пустым.'; return; }
   if (!announceRoles.length) { if (status) status.textContent = 'Добавьте хотя бы одну роль для пинга.'; return; }
   if (status) status.textContent = 'Сохранение…';
-  const out = await announceApi({ action: 'settings', roles: announceRoles.slice(), header, footer });
+  const out = await syncSettingsPost('/api/announce', { action: 'settings', roles: announceRoles.slice(), header, footer });
   if (out.ok) {
-    announceHeader = out.header || header;
-    announceFooter = typeof out.footer === 'string' ? out.footer : footer;
+    announceHeader = header;
+    announceFooter = footer;
     announceFillSettingsInputs();
     announceSync();
-    if (status) status.textContent = 'Сохранено — новые анонсы уйдут с этим текстом.';
-    toast('Настройки анонса', 'Роли и текст сохранены.');
+    if (status) {
+      status.textContent = out.partial
+        ? 'Сохранено не на всех зеркалах: ' + (out.failed || []).join(', ')
+        : 'Сохранено — новые анонсы уйдут с этим текстом.';
+    }
+    if (out.partial) {
+      toast('Настройки анонса', 'Не удалось обновить: ' + (out.failed || []).join(', '), 'error');
+    } else {
+      toast('Настройки анонса', 'Роли и текст сохранены.');
+    }
   } else {
     const messages = {
       bad_roles: 'Нужна хотя бы одна роль.',
@@ -4628,6 +4800,20 @@ function renderAdminAnnounce() {
         clearTimeout(announceAutoAddTimer);
         announceCommitTime();
       }
+      /* Пробел после начала переносит ввод в поле «Конец». */
+      if ((e.key === ' ' || e.code === 'Space') && which === 'from') {
+        const parsed = announceParseTime(input.value);
+        if (parsed && parsed.indexOf(' – ') < 0) {
+          e.preventDefault();
+          input.value = parsed;
+          announceUpdateTimeHint();
+          if (to) {
+            to.focus();
+            to.select();
+          }
+          return;
+        }
+      }
       if (e.key === 'Escape') {
         input.value = '';
         announceUpdateTimeHint();
@@ -4694,7 +4880,7 @@ function renderAnnounceSettings() {
           <div class="announce-chips" id="announceRoleChips"></div>
           <div class="ann-time-row">
             <input type="text" id="announceRoleInput" class="ann-input"
-                   placeholder="745515563333189632 или «Отдел ИП»"
+                   placeholder="745515563333189632 или «Зав. ИП»"
                    autocomplete="off" spellcheck="false">
             <button type="button" class="a-btn sec" id="announceRoleAdd">Добавить</button>
           </div>
@@ -5072,32 +5258,73 @@ async function syncRemoteConfig() {
   return true;
 }
 
-async function publishRemoteConfig(config) {
+/* ---- Автосинхронизация настроек: Vercel ↔ Cloudflare Pages ----
+   Оба API подписаны одним секретом, поэтому один токен подходит для обоих.
+   Сохраняем настройки сразу в оба хранилища, чтобы зеркала не расходились. */
+const SETTINGS_SYNC_HOSTS = ['https://ems.celleste.site', 'https://ems-ip.pages.dev'];
+
+function settingsSyncTargets() {
   try {
-    const res = await apiFetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ config })
-    });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, code: 'network', detail: String((e && e.message) || e) };
+    if (location.protocol === 'file:') return [];
+  } catch (e) {}
+  return SETTINGS_SYNC_HOSTS.slice();
+}
+
+function syncOutcome(results) {
+  const list = Array.isArray(results) ? results : [];
+  const ok = list.filter(r => r.ok);
+  if (ok.length) {
+    return {
+      ok: true,
+      synced: ok.map(r => r.host),
+      failed: list.filter(r => !r.ok).map(r => r.host),
+      partial: ok.length < list.length
+    };
   }
+  const first = list[0] || {};
+  return {
+    ok: false,
+    code: first.code || 'network',
+    detail: first.detail || '',
+    status: first.status,
+    failed: list.map(r => r.host)
+  };
+}
+
+async function syncSettingsPost(path, body) {
+  const token = getAuthToken();
+  if (!token) return { ok: false, code: 'no_secret', failed: settingsSyncTargets() };
+  const targets = settingsSyncTargets();
+  const results = await Promise.all(targets.map(async host => {
+    try {
+      const res = await fetch(host + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(() => null);
+      return {
+        host,
+        ok: !!(data && data.ok),
+        code: data && data.code,
+        status: res.status,
+        data
+      };
+    } catch (e) {
+      return { host, ok: false, code: 'network', detail: String((e && e.message) || e) };
+    }
+  }));
+  const out = syncOutcome(results);
+  out.results = results;
+  return out;
+}
+
+async function publishRemoteConfig(config) {
+  return syncSettingsPost('/api/config', { config });
 }
 
 async function putWebhookConfig(slot, url) {
-  if (!getAuthToken()) return { ok: false, code: 'no_secret' };
-  let res;
-  try {
-    res = await apiFetch('/api/webhook-config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ slot, url })
-    });
-  } catch (e) {
-    return { ok: false, code: 'network', detail: String((e && e.message) || e) };
-  }
-  try { return await res.json(); } catch (e) { return { ok: false, code: 'bad_response', status: res.status }; }
+  return syncSettingsPost('/api/webhook-config', { slot, url });
 }
 
 
@@ -5110,7 +5337,11 @@ async function saveWebhookConfig(slot) {
   const outcome = await putWebhookConfig(slot, url);
   if (outcome.ok) {
     input.value = '';
-    el.textContent = 'Вебхук сохранён на сервере — отправка работает.';
+    if (outcome.partial) {
+      el.textContent = 'Сохранено не на всех зеркалах: ' + (outcome.failed || []).join(', ');
+    } else {
+      el.textContent = 'Вебхук сохранён на сервере — отправка работает.';
+    }
     refreshWebhookStatus(slot);
   } else if (outcome.code === 'unauthorized') {
     el.textContent = 'Неверный секрет сервера.';
@@ -5136,7 +5367,11 @@ async function clearWebhookConfig(slot, btn) {
   if (btn) btn.dataset.busy = '';
   if (outcome.ok) {
     if ($('whUrl_' + slot)) $('whUrl_' + slot).value = '';
-    el.textContent = 'Вебхук отключён.';
+    if (outcome.partial) {
+      el.textContent = 'Отключено не на всех зеркалах: ' + (outcome.failed || []).join(', ');
+    } else {
+      el.textContent = 'Вебхук отключён.';
+    }
     refreshWebhookStatus(slot);
   } else if (outcome.code === 'unauthorized') {
     el.textContent = 'Неверный секрет сервера.';
@@ -5450,7 +5685,9 @@ function saveAdminConfig() {
     closeAdmin();
     toast('Настройки сохранены', 'Публикуем для всех пользователей…');
     publishRemoteConfig(CONFIG).then(outcome => {
-      if (outcome && outcome.ok) {
+      if (outcome && outcome.ok && outcome.partial) {
+        toast('Опубликовано не везде', 'Не удалось обновить: ' + (outcome.failed || []).join(', '), 'error');
+      } else if (outcome && outcome.ok) {
         toast('Настройки опубликованы', 'Изменения увидят все пользователи.');
       } else if (outcome && (outcome.code === 'no_secret' || outcome.code === 'no_server_secret')) {
         toast('Сохранено только локально', 'Задайте «Секрет сервера», чтобы изменения увидели все.', 'error');

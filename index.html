@@ -2464,6 +2464,65 @@ body.gate-locked { overflow: hidden; }
 .bot-role-chip button { border: 0; background: transparent; color: #ff8f8f; cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
 .bot-role-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bot-role-add input { flex: 1; min-width: 220px; }
+
+/* Кастомный выбор цвета полосы */
+.bot-msg-field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.bot-color-field { position: relative; }
+.bot-color-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); background: var(--surface-3);
+  color: var(--text); font: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.bot-color-btn:hover { border-color: var(--line-strong); background: rgba(255, 236, 214, .09); }
+.bot-color-btn[aria-expanded="true"] {
+  border-color: var(--accent-line); background: var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.bot-color-swatch {
+  width: 22px; height: 22px; border-radius: 7px; flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .28);
+}
+.bot-color-value {
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  letter-spacing: .02em; text-transform: uppercase;
+}
+.bot-color-caret { margin-left: auto; color: var(--muted); font-size: 12px; transition: transform .16s ease; }
+.bot-color-btn[aria-expanded="true"] .bot-color-caret { transform: rotate(180deg); }
+.bot-color-pop {
+  position: absolute; z-index: 40; top: calc(100% + 8px); left: 0; width: 254px;
+  padding: 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong); background: #1b1917;
+  box-shadow: var(--shadow-lg);
+}
+.bot-color-pop[hidden] { display: none; }
+.bot-color-pop.open { animation: botColorIn .16s ease; }
+.bot-color-pop.up { top: auto; bottom: calc(100% + 8px); }
+@keyframes botColorIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.bot-color-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.bot-color-opt {
+  width: 100%; height: 32px; padding: 0; border-radius: 9px;
+  border: 2px solid transparent; cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3);
+  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
+}
+.bot-color-opt:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3), 0 4px 10px rgba(0, 0, 0, .35); }
+.bot-color-opt.active {
+  border-color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3), 0 0 0 2px rgba(255, 255, 255, .22);
+}
+.bot-color-custom { display: flex; gap: 8px; margin-top: 12px; }
+.bot-color-custom input {
+  flex: 1; min-width: 0; text-transform: uppercase;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  letter-spacing: .03em;
+}
+.bot-color-custom .a-btn { flex: none; padding: 9px 14px; }
+.bot-color-error { min-height: 14px; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--danger); }
 .bot-pv-line { font-size: 13.5px; line-height: 1.55; color: #dbdee1; min-height: 2px; }
 .bot-pv-line b { color: #f2f3f5; }
 @media (max-width: 720px) { .bot-msg-grid { grid-template-columns: 1fr; } }
@@ -2797,7 +2856,7 @@ body.gate-locked { overflow: hidden; }
 
         <div class="field">
           <label for="userIdStat">ID пользователя (Discord) <b class="req">*</b></label>
-          <input type="text" id="userIdStat" placeholder="Например: 123456789012345678" inputmode="numeric">
+          <input type="text" id="userIdStat" placeholder="Например: 512137319088783360" inputmode="numeric">
           <details class="spoiler">
             <summary>Как узнать свой Discord ID?</summary>
             <div class="spoiler-body">
@@ -2881,12 +2940,12 @@ body.gate-locked { overflow: hidden; }
 
         <div class="field">
           <label for="internHostId">Discord ID — кто принимал <b class="req">*</b></label>
-          <input type="text" id="internHostId" placeholder="Например: 123456789012345678" inputmode="numeric">
+          <input type="text" id="internHostId" placeholder="Например: 512137319088783360" inputmode="numeric">
         </div>
 
         <div class="field">
           <label for="internTakerId">Discord ID — кто сдавал <b class="req">*</b></label>
-          <input type="text" id="internTakerId" placeholder="Например: 123456789012345678" inputmode="numeric">
+          <input type="text" id="internTakerId" placeholder="Например: 512137319088783360" inputmode="numeric">
         </div>
 
         <div class="field column">
@@ -2930,12 +2989,12 @@ body.gate-locked { overflow: hidden; }
 
         <div class="field">
           <label for="unfitReporterId">Ваш ID сотрудника (кто отправляет) <b class="req">*</b></label>
-          <input type="text" id="unfitReporterId" placeholder="Например: 123456789012345678" inputmode="numeric">
+          <input type="text" id="unfitReporterId" placeholder="Например: 512137319088783360" inputmode="numeric">
         </div>
 
         <div class="field">
           <label for="unfitEmployeeId">ID сотрудника, на кого отправляют (Discord) <b class="req">*</b></label>
-          <input type="text" id="unfitEmployeeId" placeholder="Например: 123456789012345678" inputmode="numeric">
+          <input type="text" id="unfitEmployeeId" placeholder="Например: 512137319088783360" inputmode="numeric">
         </div>
 
         <div class="field">
@@ -3280,7 +3339,7 @@ const DEFAULT_CONFIG = {
     unfit: {
       username: 'Профнепригодность',
       avatar: 'https://ems.celleste.site/avatar.jpg',
-      color: '#ff6a6a',
+      color: '#b6e04d',
       roles: ['745515563333189632', '745515556873961552'],
       title: 'Профнепригодность',
       footer: 'By Celleste · Отчётная система ИП',
@@ -3589,6 +3648,6 @@ function clearReports() {
 }
     </script>
     <!-- INLINE_SCRIPTS_END -->
-  <script src="app.js?v=28a13894" async></script>
+  <script src="app.js?v=41089fb9" async></script>
 </body>
 </html>
