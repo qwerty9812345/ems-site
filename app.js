@@ -5491,8 +5491,10 @@ async function setsSendNow() {
     username: ui.username || 'Результаты наборов',
     avatar_url: ui.avatar || 'https://ems.celleste.site/avatar.jpg',
     content,
-    /* Пинги — только выбранным людям из составов. */
-    allowed_mentions: { parse: [], users: users.slice(0, 100) }
+    /* Пинги — только выбранным людям из составов.
+       parse и users взаимоисключающие, поэтому передаём только users:
+       упомянуты будут ровно те, кто есть в списке. */
+    allowed_mentions: { users: users.slice(0, 100) }
   };
 
   const out = await postToProxy('sets', payload);
