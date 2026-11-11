@@ -419,6 +419,9 @@ function updateMenuVisibility() {
   /* Блок 09 «Наборы» — только старший состав; редактирование текста и ролей — в админке. */
   const a = $('selectAnnounce');
   if (a) a.classList.toggle('hidden', !adminUnlocked);
+  /* Блок 10 «Результаты наборов» — только СС. */
+  const s = $('selectSets');
+  if (s) s.classList.toggle('hidden', !adminUnlocked);
 }
 
 function renderRules(id, rules) {
@@ -531,6 +534,7 @@ async function fetchWebhookStatus() {
 
 function showScreen(name) {
   if (name === 'premium' && !adminUnlocked) return;
+  if (name === 'sets' && !adminUnlocked) return;
   state.form = name;
   $('menuScreen').classList.toggle('hidden', name !== 'menu');
   $('weeklyForm').classList.toggle('hidden', name !== 'weekly');
@@ -542,6 +546,7 @@ function showScreen(name) {
   $('unfitForm').classList.toggle('hidden', name !== 'unfit');
   $('premiumForm').classList.toggle('hidden', name !== 'premium');
   if ($('announceForm')) $('announceForm').classList.toggle('hidden', name !== 'announce');
+  if ($('setsForm')) $('setsForm').classList.toggle('hidden', name !== 'sets');
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'weekly') { setCurrentWeek('weekly'); renderCalendar('weekly'); }
   if (name === 'night') { setCurrentWeek('night'); renderCalendar('night'); }
@@ -549,6 +554,7 @@ function showScreen(name) {
   if (name === 'quiz') renderQuiz();
   if (name === 'premium') renderPremium();
   if (name === 'announce') renderAdminAnnounce();
+  if (name === 'sets') renderSetsForm();
 }
 
 /* ================= Календарь ================= */
@@ -3510,7 +3516,8 @@ const WEBHOOK_SLOTS = [
   { slot: 'stat', name: 'Запись на стажировку', desc: 'В этот канал уходят заявки на стажировку с упоминанием ролей.' },
   { slot: 'intern', name: 'Отчёт о стажировке', desc: 'В этот канал уходят отчёты о проведённых стажировках с упоминанием ролей.' },
   { slot: 'unfit', name: 'Профнепригодность', desc: 'В этот канал уходят отчёты о профнепригодности с фото и упоминанием ролей.' },
-  { slot: 'announce', name: 'Анонсы наборов', desc: 'В этот канал уходят анонсы наборов из вкладки «Наборы»: пинги ролей, дата и список времени.' }
+  { slot: 'announce', name: 'Анонсы наборов', desc: 'В этот канал уходят анонсы наборов из вкладки «Наборы»: пинги ролей, дата и список времени.' },
+  { slot: 'sets', name: 'Результаты наборов', desc: 'В этот канал уходят итоги наборов из блока 10: тип набора, время, количество принятых и пинги составов.' }
 ];
 
 function renderAdminSend() {
@@ -3578,7 +3585,8 @@ const BOT_MESSAGE_BLOCKS = [
   { id: 'night', label: '03 · Ночная активность' },
   { id: 'stat', label: '04 · Запись на стажировку' },
   { id: 'intern', label: '06 · Отчёт о стажировке' },
-  { id: 'unfit', label: '07 · Профнепригодность' }
+  { id: 'unfit', label: '07 · Профнепригодность' },
+  { id: 'sets', label: '10 · Результаты наборов' }
 ];
 
 /* Палитра для кастомного выбора цвета полосы (в стиле сайта). */
@@ -3634,6 +3642,14 @@ const BOT_PREVIEW_SAMPLES = {
     'Дата последнего повышения:', '01.11.2026',
     'Ранг Сотрудника:', '3',
     'Фото: во вложении'
+  ],
+  sets: [
+    '1. EMS LS',
+    '2. 15:00 – 15:40',
+    '3. 0',
+    '4. @Artemy Sakurai',
+    '5. @Iza Dias',
+    '6. @Стажёр ИП'
   ]
 };
 
@@ -3932,6 +3948,7 @@ function renderAdminMessages() {
 const ANNOUNCE_PRESETS_DEFAULT = ['13:00 – 13:40', '15:00 – 15:40', '17:00 – 17:40'];
 const ANNOUNCE_PRESETS_KEY = 'ems.announce.presets';
 const ANNOUNCE_LAST_KEY = 'ems.announce.last';
+const ANNOUNCE_SETS_KEY = 'ems.announce.sets';
 const ANNOUNCE_DEFAULT_ROLES = ['784494588051193906', '784777068521062410', '745319702183804951'];
 const ANNOUNCE_ROLE_NAMES = {
   '745515563333189632': 'Зав. ИП',
@@ -4010,6 +4027,36 @@ function setAnnounceLast(id, pollId) {
     if (!id) localStorage.removeItem(ANNOUNCE_LAST_KEY);
     else localStorage.setItem(ANNOUNCE_LAST_KEY, JSON.stringify({ id, pollId: pollId || '' }));
   } catch (e) {}
+}
+
+/* Запоминаем, какие наборы были анонсированы на конкретную дату:
+   блок 10 берёт отсюда список времени для сегодняшнего дня. */
+function announceRememberSets(iso, times) {
+  if (!iso || !Array.isArray(times) || !times.length) return;
+  try {
+    const raw = JSON.parse(localStorage.getItem(ANNOUNCE_SETS_KEY) || '{}');
+    const map = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    map[iso] = times.slice(0, 50);
+    const keys = Object.keys(map).sort();
+    while (keys.length > 60) delete map[keys.shift()];
+    localStorage.setItem(ANNOUNCE_SETS_KEY, JSON.stringify(map));
+  } catch (e) {}
+}
+
+function announceSetsForDate(iso) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ANNOUNCE_SETS_KEY) || '{}');
+    const list = raw && typeof raw === 'object' ? raw[iso] : null;
+    if (!Array.isArray(list)) return [];
+    const out = [];
+    list.forEach(value => {
+      const parsed = announceParseTime(value);
+      if (parsed && out.indexOf(parsed) < 0) out.push(parsed);
+    });
+    return out;
+  } catch (e) {
+    return [];
+  }
 }
 
 function announceRoleName(id) {
@@ -4984,6 +5031,7 @@ async function announceSendNow() {
   if (btn) btn.disabled = false;
   if (out.ok) {
     setAnnounceLast(out.messageId || '', out.pollMessageId || '');
+    announceRememberSets(announceDate, announceTimes.slice());
     if (status) {
       status.innerHTML = 'Отправлено.' + (out.url
         ? ' <a href="' + escapeHtml(out.url) + '" target="_blank" rel="noopener">Открыть сообщение</a>'
@@ -5026,6 +5074,441 @@ async function announceDeleteLast() {
   announceSync();
 }
 
+
+/* ================= Блок 10: результаты наборов =================
+   Доступен только СС. Данные составов читаются с сервера (/api/sets),
+   время — из сегодняшних наборов блока 09 (или сохранённых пресетов). */
+
+const SETS_TYPE_DEFAULT = 'EMS LS';
+const SETS_TYPE_OPTIONS = ['EMS LS', 'EMS SS'];
+const SETS_FALLBACK_TEXT = {
+  seniors: 'на данный момент СС нет',
+  staff: 'сотрудника нет',
+  interns: 'сотрудника нет'
+};
+const SETS_GROUPS = [
+  { id: 'seniors', title: 'Старший состав', empty: 'В таблице не найдено ни одного СС.' },
+  { id: 'staff', title: 'Отдел ИП', empty: 'В таблице пока нет сотрудников отдела ИП.' },
+  { id: 'interns', title: 'Стажёры ИП', empty: 'В таблице пока нет стажёров.' }
+];
+
+let setsType = SETS_TYPE_DEFAULT;
+let setsTime = '';
+let setsCount = '0';
+let setsRoster = { staff: [], interns: [], seniors: [] };
+let setsSelected = { staff: [], interns: [], seniors: [] };
+let setsLoaded = false;
+let setsLoading = false;
+let setsLoadError = '';
+
+function setsPersonKey(person) {
+  /* JSON-ключ, а не \u0000: HTML-парсер заменяет NUL в атрибутах на U+FFFD,
+     из-за чего выбранные люди «терялись» после перерисовки. */
+  return JSON.stringify([
+    String((person && person.name) || ''),
+    String((person && person.discord) || '')
+  ]);
+}
+
+function setsTodayIso() {
+  return announceIsoFromDate(new Date());
+}
+
+function setsTimeOptions() {
+  const today = announceSetsForDate(setsTodayIso());
+  const list = (today.length ? today : announceLoadPresets()).filter(Boolean);
+  return list.filter((value, index) => list.indexOf(value) === index);
+}
+
+function setsSelectedPeople(group) {
+  const keys = setsSelected[group] || [];
+  return (setsRoster[group] || []).filter(person => keys.indexOf(setsPersonKey(person)) >= 0);
+}
+
+function setsMention(person) {
+  return person && person.discord ? '<@' + person.discord + '>' : String((person && person.name) || '');
+}
+
+function setsGroupContent(group) {
+  const people = setsSelectedPeople(group);
+  if (!people.length) return SETS_FALLBACK_TEXT[group] || 'сотрудника нет';
+  return people.map(setsMention).join(', ');
+}
+
+function setsMessageContent() {
+  const count = String(setsCount || '').trim() || '0';
+  return [
+    '1. ' + setsType,
+    '2. ' + (setsTime || '—'),
+    '3. ' + count,
+    '4. ' + setsGroupContent('seniors'),
+    '5. ' + setsGroupContent('staff'),
+    '6. ' + setsGroupContent('interns')
+  ].join('\n');
+}
+
+function setsPreviewGroupHtml(group) {
+  const people = setsSelectedPeople(group);
+  if (!people.length) {
+    return '<span class="sets-preview-value empty">' + escapeHtml(SETS_FALLBACK_TEXT[group]) + '</span>';
+  }
+  const items = people.map(person => {
+    const name = escapeHtml(person.name);
+    return '<span class="sets-preview-mention">' + (person.discord ? '@' + name : name) + '</span>';
+  });
+  return '<span class="sets-preview-value">' + items.join(', ') + '</span>';
+}
+
+function setsPreviewHtml() {
+  const ui = resolveBotMessage('sets', CONFIG);
+  const avatar = ui.avatar ? '<img src="' + escapeHtml(ui.avatar) + '" alt="">' : '';
+  const cta = ui.content ? '<div class="ann-pv-cta">' + announceMdInline(ui.content) + '</div>' : '';
+  const values = [
+    '<span class="sets-preview-value">' + escapeHtml(setsType) + '</span>',
+    '<span class="sets-preview-value">' + escapeHtml(setsTime || '—') + '</span>',
+    '<span class="sets-preview-value">' + escapeHtml(String(setsCount || '').trim() || '0') + '</span>',
+    setsPreviewGroupHtml('seniors'),
+    setsPreviewGroupHtml('staff'),
+    setsPreviewGroupHtml('interns')
+  ];
+  return `
+    <div class="ann-pv-head">
+      <span class="ann-pv-avatar">${avatar}</span>
+      <span class="ann-pv-name">${escapeHtml(ui.username || 'Результаты наборов')}</span>
+      <span class="ann-pv-app">APP</span>
+      <span class="ann-pv-time">сегодня</span>
+    </div>
+    <div class="ann-pv-body">
+      ${cta}
+      <div class="sets-preview-lines">
+        ${values.map((value, index) =>
+          '<div class="sets-preview-line"><span class="sets-preview-num">' + (index + 1) + '.</span>' + value + '</div>'
+        ).join('')}
+      </div>
+    </div>`;
+}
+
+function setsUpdatePreview() {
+  const preview = $('setsPreview');
+  if (preview) {
+    preview.innerHTML = setsPreviewHtml();
+    hydrateIcons(preview);
+  }
+}
+
+function setsSyncGroupCounts() {
+  SETS_GROUPS.forEach(group => {
+    const el = $('setsCount_' + group.id);
+    if (el) el.textContent = setsSelectedPeople(group.id).length + ' выбрано';
+  });
+}
+
+function setsStatusMessage(out) {
+  const messages = {
+    unauthorized: 'Нужен секрет сервера — подтвердите доступ.',
+    not_configured: 'Вебхук результатов не настроен (вкладка «Отправка»).',
+    rate_limited: 'Слишком часто. Подождите минуту.',
+    sheet_unavailable: 'Не удалось прочитать таблицу. Попробуйте обновить.',
+    network: 'Нет связи с сервером.'
+  };
+  if (out && out.code === 'upstream') return 'Discord отклонил отправку (код ' + out.status + ').';
+  return messages[out && out.code] || ('Не удалось: ' + ((out && (out.detail || out.code)) || 'ошибка'));
+}
+
+function setsApi(force) {
+  return apiFetch('/api/sets' + (force ? '?refresh=1' : ''), {
+    method: 'GET',
+    cache: 'no-store',
+    headers: authHeader()
+  }).then(res => res.json().catch(() => ({ ok: false, code: 'bad_response', status: res.status })))
+    .catch(e => ({ ok: false, code: 'network', detail: String((e && e.message) || e) }));
+}
+
+async function setsLoadRoster(force) {
+  if (setsLoading) return;
+  setsLoading = true;
+  setsLoadError = '';
+  const status = $('setsStatus');
+  if (status) status.textContent = 'Загрузка данных из таблицы…';
+
+  const out = await setsApi(!!force);
+  setsLoading = false;
+
+  if (out && out.ok === true) {
+    setsRoster = {
+      staff: Array.isArray(out.staff) ? out.staff.filter(p => p && p.name) : [],
+      interns: Array.isArray(out.interns) ? out.interns.filter(p => p && p.name) : [],
+      seniors: Array.isArray(out.seniors) ? out.seniors.filter(p => p && p.name) : []
+    };
+    setsLoaded = true;
+    /* Убираем выбранных, которых больше нет в таблице. */
+    Object.keys(setsSelected).forEach(group => {
+      const alive = {};
+      (setsRoster[group] || []).forEach(person => { alive[setsPersonKey(person)] = true; });
+      setsSelected[group] = setsSelected[group].filter(key => alive[key]);
+    });
+  } else {
+    setsLoaded = false;
+    setsLoadError = (out && out.code) || 'error';
+  }
+  renderSetsForm();
+}
+
+function renderSetsForm() {
+  const root = $('setsRoot');
+  if (!root) return;
+
+  if (!getAuthToken()) {
+    root.innerHTML = `
+      <div class="ann-login">
+        <h4>Доступ</h4>
+        <div class="a-hint">Раздел только для старшего состава. Введите секрет сервера — доступ действует 24 часа.</div>
+        <div class="ann-time-row">
+          <input type="password" id="setsSecret" class="ann-input" placeholder="секрет сервера" autocomplete="off">
+          <button type="button" class="a-btn sec" id="setsLoginBtn">Подтвердить</button>
+        </div>
+        <div id="setsLoginStatus" class="a-hint" style="margin:10px 0 0"></div>
+      </div>`;
+    const loginBtn = $('setsLoginBtn');
+    if (loginBtn) {
+      loginBtn.onclick = async () => {
+        const input = $('setsSecret');
+        const status = $('setsLoginStatus');
+        const password = (input && input.value ? input.value : '').trim();
+        if (!password) { if (status) status.textContent = 'Введите секрет сервера.'; return; }
+        if (status) status.textContent = 'Проверка…';
+        const outcome = await acquireAuthToken(password);
+        if (outcome.ok) {
+          setsLoaded = false;
+          setsLoadError = '';
+          renderSetsForm();
+          toast('Доступ подтверждён', 'Можно отправлять результаты наборов.');
+        } else {
+          const messages = {
+            unauthorized: 'Неверный секрет сервера.',
+            no_server_secret: 'На сервере не задан ADMIN_SECRET.',
+            rate_limited: 'Слишком много попыток. Подождите минуту.',
+            network: 'Нет связи с сервером.'
+          };
+          if (status) status.textContent = messages[outcome.code] || ('Ошибка: ' + outcome.code);
+        }
+      };
+    }
+    return;
+  }
+
+  const times = setsTimeOptions();
+  if (!setsTime || times.indexOf(setsTime) < 0) setsTime = times[0] || '';
+  const todayTimes = announceSetsForDate(setsTodayIso());
+  const timeSource = todayTimes.length ? 'сегодняшние наборы' : 'пресеты из блока 09';
+
+  const typeButtons = SETS_TYPE_OPTIONS.map(type =>
+    '<button type="button" class="sets-type-btn' + (type === setsType ? ' active' : '') +
+    '" data-sets-type="' + escapeHtml(type) + '">' + escapeHtml(type) + '</button>'
+  ).join('');
+
+  const timeOptions = times.length
+    ? times.map(value => '<option value="' + escapeHtml(value) + '"' +
+        (value === setsTime ? ' selected' : '') + '>' + escapeHtml(value) + '</option>').join('')
+    : '<option value="">Нет доступных наборов</option>';
+
+  const groupsHtml = SETS_GROUPS.map(group => {
+    const people = setsRoster[group.id] || [];
+    const list = people.length
+      ? people.map(person => {
+        const key = setsPersonKey(person);
+        const checked = (setsSelected[group.id] || []).indexOf(key) >= 0;
+        return '<label class="sets-person' + (checked ? ' checked' : '') + '">' +
+          '<input type="checkbox" data-sets-group="' + group.id + '" data-sets-key="' + escapeHtml(key) + '"' +
+          (checked ? ' checked' : '') + '>' +
+          '<span class="sets-person-name">' + escapeHtml(person.name) + '</span>' +
+          (person.discord ? '<span class="sets-person-rank">@</span>' : '') +
+          '</label>';
+      }).join('')
+      : '<div class="sets-empty">' + escapeHtml(group.empty) + '</div>';
+    return `
+      <div class="ann-field">
+        <span class="ann-field-label">${escapeHtml(group.title)}<span class="ann-count" id="setsCount_${group.id}"></span></span>
+        <div class="sets-people">${list}</div>
+      </div>`;
+  }).join('');
+
+  root.innerHTML = `
+    <div class="ann-layout">
+      <div class="ann-main">
+        <section class="ann-block">
+          <div class="ann-block-head">
+            <h4>Набор</h4>
+            <span class="ann-count">${escapeHtml(timeSource)}</span>
+          </div>
+
+          <div class="ann-field">
+            <span class="ann-field-label">Тип набора</span>
+            <div class="sets-type-row">${typeButtons}</div>
+          </div>
+
+          <label class="ann-field">
+            <span class="ann-field-label">Время набора <span class="ann-sub-note">из блока 09</span></span>
+            <select id="setsTime" class="ann-input">${timeOptions}</select>
+          </label>
+
+          <label class="ann-field">
+            <span class="ann-field-label">Сколько принято</span>
+            <div class="sets-count-row">
+              <input type="number" id="setsCount" class="ann-input" min="0" step="1" inputmode="numeric"
+                     value="${escapeHtml(String(setsCount || '').trim() || '0')}">
+              <span class="sets-count-note">человек</span>
+            </div>
+          </label>
+
+          ${times.length ? '' : '<div class="sets-empty">Сегодня в блоке 09 ещё нет наборов и пресетов. Добавьте время в блоке 09 — оно появится здесь.</div>'}
+        </section>
+
+        <section class="ann-block">
+          <div class="ann-block-head">
+            <h4>Кто присутствовал</h4>
+            <button type="button" class="a-btn sec" id="setsRefreshBtn">Обновить</button>
+          </div>
+          ${groupsHtml}
+        </section>
+
+        <section class="ann-block">
+          <div class="ann-block-head"><h4>Отправка</h4></div>
+          <div class="ann-send-row">
+            <button type="button" class="a-btn ann-send" id="setsSendBtn">Отправить в Discord</button>
+          </div>
+          <div id="setsStatus" class="a-hint" style="margin:12px 0 0"></div>
+        </section>
+      </div>
+
+      <aside class="ann-side">
+        <div class="ann-block ann-preview-block">
+          <div class="ann-block-head">
+            <h4>Предпросмотр</h4>
+            <span class="ann-pv-badge">Discord</span>
+          </div>
+          <div class="ann-preview" id="setsPreview"></div>
+        </div>
+      </aside>
+    </div>`;
+
+  root.querySelectorAll('[data-sets-type]').forEach(btn => {
+    btn.onclick = () => {
+      setsType = btn.dataset.setsType;
+      root.querySelectorAll('[data-sets-type]').forEach(other => {
+        other.classList.toggle('active', other === btn);
+      });
+      setsUpdatePreview();
+    };
+  });
+
+  const timeSelect = $('setsTime');
+  if (timeSelect) {
+    timeSelect.onchange = () => {
+      setsTime = timeSelect.value;
+      setsUpdatePreview();
+    };
+  }
+
+  const countInput = $('setsCount');
+  if (countInput) {
+    countInput.oninput = () => {
+      setsCount = countInput.value;
+      setsUpdatePreview();
+    };
+  }
+
+  root.querySelectorAll('[data-sets-group]').forEach(input => {
+    input.onchange = () => {
+      const group = input.dataset.setsGroup;
+      const key = input.dataset.setsKey;
+      if (!setsSelected[group]) setsSelected[group] = [];
+      const at = setsSelected[group].indexOf(key);
+      if (input.checked) {
+        if (at < 0) setsSelected[group].push(key);
+      } else if (at >= 0) {
+        setsSelected[group].splice(at, 1);
+      }
+      const label = input.closest('.sets-person');
+      if (label) label.classList.toggle('checked', input.checked);
+      setsSyncGroupCounts();
+      setsUpdatePreview();
+    };
+  });
+
+  const refreshBtn = $('setsRefreshBtn');
+  if (refreshBtn) {
+    refreshBtn.onclick = () => {
+      setsLoaded = false;
+      setsLoadError = '';
+      setsLoadRoster(true);
+    };
+  }
+
+  const sendBtn = $('setsSendBtn');
+  if (sendBtn) sendBtn.onclick = setsSendNow;
+
+  setsSyncGroupCounts();
+  setsUpdatePreview();
+
+  const status = $('setsStatus');
+  if (status) {
+    if (setsLoadError) status.textContent = setsStatusMessage({ code: setsLoadError });
+    else if (!setsLoaded) status.textContent = 'Загрузка данных из таблицы…';
+  }
+
+  if (!setsLoaded && !setsLoading && !setsLoadError) setsLoadRoster(false);
+}
+
+async function setsSendNow() {
+  const status = $('setsStatus');
+  const countRaw = String(setsCount || '').trim();
+  const count = Number(countRaw);
+  if (!countRaw || !Number.isFinite(count) || count < 0 || Math.floor(count) !== count) {
+    if (status) status.textContent = 'Укажите, сколько человек принято: целое число от 0.';
+    return;
+  }
+  if (!setsTime) {
+    if (status) status.textContent = 'Нет времени набора: добавьте его в блоке 09.';
+    return;
+  }
+
+  const btn = $('setsSendBtn');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Отправка…';
+
+  const ui = resolveBotMessage('sets', CONFIG);
+  const users = [];
+  ['seniors', 'staff', 'interns'].forEach(group => {
+    setsSelectedPeople(group).forEach(person => {
+      if (person.discord && users.indexOf(person.discord) < 0) users.push(person.discord);
+    });
+  });
+
+  const content = (ui.content ? ui.content + '\n' : '') + setsMessageContent() +
+    (ui.footer ? '\n-# ' + ui.footer : '');
+  const payload = {
+    username: ui.username || 'Результаты наборов',
+    avatar_url: ui.avatar || 'https://ems.celleste.site/avatar.jpg',
+    content,
+    /* Пинги — только выбранным людям из составов. */
+    allowed_mentions: { parse: [], users: users.slice(0, 100) }
+  };
+
+  const out = await postToProxy('sets', payload);
+  if (btn) btn.disabled = false;
+
+  if (out && out.ok) {
+    if (status) {
+      status.innerHTML = 'Отправлено.' + (out.data && out.data.url
+        ? ' <a href="' + escapeHtml(out.data.url) + '" target="_blank" rel="noopener">Открыть сообщение</a>'
+        : '');
+    }
+    toast('Результаты отправлены', 'Сообщение уже в Discord.');
+  } else {
+    if (status) status.textContent = setsStatusMessage(out);
+  }
+}
 
 async function saveGSheet() {
   const el = $('statusGSheet');
@@ -6033,6 +6516,7 @@ function init() {
   on('selectUnfit', 'click', () => showScreen('unfit'));
   on('selectPremium', 'click', () => showScreen('premium'));
   on('selectAnnounce', 'click', () => { if (adminUnlocked) showScreen('announce'); });
+  on('selectSets', 'click', () => { if (adminUnlocked) showScreen('sets'); });
   on('backToMenuWeekly', 'click', () => showScreen('menu'));
   on('backToMenuPromotion', 'click', () => showScreen('menu'));
   on('backToMenuNight', 'click', () => showScreen('menu'));
@@ -6042,6 +6526,7 @@ function init() {
   on('backToMenuUnfit', 'click', () => showScreen('menu'));
   on('backToMenuPremium', 'click', () => showScreen('menu'));
   on('backToMenuAnnounce', 'click', () => showScreen('menu'));
+  on('backToMenuSets', 'click', () => showScreen('menu'));
   on('premiumCopyBtn', 'click', copyPremiumText);
   on('premiumRefreshBtn', 'click', renderPremium);
 
