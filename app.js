@@ -5032,6 +5032,8 @@ async function announceSendNow() {
   if (out.ok) {
     setAnnounceLast(out.messageId || '', out.pollMessageId || '');
     announceRememberSets(announceDate, announceTimes.slice());
+    /* Сразу обновляем время для блока 10 в этой же вкладке. */
+    setsServerLast = { date, iso: announceDate, times: announceTimes.slice(), at: Date.now() };
     if (status) {
       status.innerHTML = 'Отправлено.' + (out.url
         ? ' <a href="' + escapeHtml(out.url) + '" target="_blank" rel="noopener">Открыть сообщение</a>'
@@ -5077,7 +5079,8 @@ async function announceDeleteLast() {
 
 /* ================= Блок 10: результаты наборов =================
    Доступен только СС. Данные составов читаются с сервера (/api/sets),
-   время — из сегодняшних наборов блока 09 (или сохранённых пресетов). */
+   время — из последнего анонса наборов (блок 09), с откатом на
+   локальные наборы текущего дня и сохранённые пресеты. */
 
 const SETS_TYPE_DEFAULT = 'EMS LS';
 const SETS_TYPE_OPTIONS = ['EMS LS', 'EMS SS'];
@@ -5100,6 +5103,8 @@ let setsSelected = { staff: [], interns: [], seniors: [] };
 let setsLoaded = false;
 let setsLoading = false;
 let setsLoadError = '';
+/* Последний анонс с сервера: { date, iso, times }. */
+let setsServerLast = null;
 
 function setsPersonKey(person) {
   /* JSON-ключ, а не \u0000: HTML-парсер заменяет NUL в атрибутах на U+FFFD,
@@ -5114,9 +5119,27 @@ function setsTodayIso() {
   return announceIsoFromDate(new Date());
 }
 
+/* Время наборов на актуальный день: сначала сервер (последний анонс),
+   затем локальная копия анонса из блока 09, в конце — пресеты.
+   Берём анонс на сегодня или на будущую дату: вечером СС часто
+   отправляют наборы сразу на завтра. Устаревшие даты игнорируем. */
+function setsServerTodayTimes() {
+  if (!setsServerLast || !Array.isArray(setsServerLast.times)) return [];
+  const iso = String(setsServerLast.iso || '');
+  if (!iso || iso < setsTodayIso()) return [];
+  const out = [];
+  setsServerLast.times.forEach(value => {
+    const parsed = announceParseTime(value);
+    if (parsed && out.indexOf(parsed) < 0) out.push(parsed);
+  });
+  return out;
+}
+
 function setsTimeOptions() {
-  const today = announceSetsForDate(setsTodayIso());
-  const list = (today.length ? today : announceLoadPresets()).filter(Boolean);
+  const today = setsTodayIso();
+  const server = setsServerTodayTimes();
+  const local = announceSetsForDate(today);
+  const list = (server.length ? server : (local.length ? local : announceLoadPresets())).filter(Boolean);
   return list.filter((value, index) => list.indexOf(value) === index);
 }
 
@@ -5231,8 +5254,13 @@ async function setsLoadRoster(force) {
   const status = $('setsStatus');
   if (status) status.textContent = 'Загрузка данных из таблицы…';
 
-  const out = await setsApi(!!force);
+  /* Составы и время последнего анонса грузим параллельно. */
+  const [out, lastOut] = await Promise.all([
+    setsApi(!!force),
+    announceApi({ action: 'last' })
+  ]);
   setsLoading = false;
+  setsServerLast = lastOut && lastOut.ok && lastOut.last ? lastOut.last : null;
 
   if (out && out.ok === true) {
     setsRoster = {
@@ -5300,7 +5328,9 @@ function renderSetsForm() {
   const times = setsTimeOptions();
   if (!setsTime || times.indexOf(setsTime) < 0) setsTime = times[0] || '';
   const todayTimes = announceSetsForDate(setsTodayIso());
-  const timeSource = todayTimes.length ? 'сегодняшние наборы' : 'пресеты из блока 09';
+  const timeSource = setsServerTodayTimes().length
+    ? 'анонс из блока 09'
+    : (todayTimes.length ? 'сегодняшние наборы' : 'пресеты из блока 09');
 
   const typeButtons = SETS_TYPE_OPTIONS.map(type =>
     '<button type="button" class="sets-type-btn' + (type === setsType ? ' active' : '') +
