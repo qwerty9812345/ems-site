@@ -554,7 +554,7 @@ function showScreen(name) {
   if (name === 'quiz') renderQuiz();
   if (name === 'premium') renderPremium();
   if (name === 'announce') renderAdminAnnounce();
-  if (name === 'sets') renderSetsForm();
+  if (name === 'sets') { renderSetsForm(); setsRefreshLast(); }
 }
 
 /* ================= Календарь ================= */
@@ -5105,6 +5105,7 @@ let setsLoading = false;
 let setsLoadError = '';
 /* Последний анонс с сервера: { date, iso, times }. */
 let setsServerLast = null;
+let setsRefreshingLast = false;
 
 function setsPersonKey(person) {
   /* JSON-ключ, а не \u0000: HTML-парсер заменяет NUL в атрибутах на U+FFFD,
@@ -5119,14 +5120,12 @@ function setsTodayIso() {
   return announceIsoFromDate(new Date());
 }
 
-/* Время наборов на актуальный день: сначала сервер (последний анонс),
-   затем локальная копия анонса из блока 09, в конце — пресеты.
-   Берём анонс на сегодня или на будущую дату: вечером СС часто
-   отправляют наборы сразу на завтра. Устаревшие даты игнорируем. */
-function setsServerTodayTimes() {
+/* Время наборов: сначала последний анонс с сервера (блок 09), затем
+   локальная копия анонса из блока 09, в конце — пресеты. Дату анонса
+   не сверяем с календарём браузера: последний анонс и есть актуальный,
+   а расхождение часов/таймзоны не должно подменять время пресетами. */
+function setsServerTimes() {
   if (!setsServerLast || !Array.isArray(setsServerLast.times)) return [];
-  const iso = String(setsServerLast.iso || '');
-  if (!iso || iso < setsTodayIso()) return [];
   const out = [];
   setsServerLast.times.forEach(value => {
     const parsed = announceParseTime(value);
@@ -5137,7 +5136,7 @@ function setsServerTodayTimes() {
 
 function setsTimeOptions() {
   const today = setsTodayIso();
-  const server = setsServerTodayTimes();
+  const server = setsServerTimes();
   const local = announceSetsForDate(today);
   const list = (server.length ? server : (local.length ? local : announceLoadPresets())).filter(Boolean);
   return list.filter((value, index) => list.indexOf(value) === index);
@@ -5247,6 +5246,19 @@ function setsApi(force) {
     .catch(e => ({ ok: false, code: 'network', detail: String((e && e.message) || e) }));
 }
 
+/* Тихо подтягиваем последний анонс при открытии блока 10: если СС
+   отправил его с другого устройства, время обновится без перезагрузки. */
+async function setsRefreshLast() {
+  if (setsRefreshingLast) return;
+  setsRefreshingLast = true;
+  const out = await announceApi({ action: 'last' });
+  setsRefreshingLast = false;
+  const next = out && out.ok && out.last ? out.last : null;
+  if (JSON.stringify(next) === JSON.stringify(setsServerLast)) return;
+  setsServerLast = next;
+  renderSetsForm();
+}
+
 async function setsLoadRoster(force) {
   if (setsLoading) return;
   setsLoading = true;
@@ -5327,10 +5339,16 @@ function renderSetsForm() {
 
   const times = setsTimeOptions();
   if (!setsTime || times.indexOf(setsTime) < 0) setsTime = times[0] || '';
+  const serverTimes = setsServerTimes();
   const todayTimes = announceSetsForDate(setsTodayIso());
-  const timeSource = setsServerTodayTimes().length
-    ? 'анонс из блока 09'
-    : (todayTimes.length ? 'сегодняшние наборы' : 'пресеты из блока 09');
+  const announceDate = setsServerLast && setsServerLast.date ? String(setsServerLast.date) : '';
+  const timeSource = serverTimes.length
+    ? ('анонс' + (announceDate ? ' от ' + announceDate : ''))
+    : (todayTimes.length ? 'наборы из блока 09' : 'пресеты — анонса нет');
+  const timeWarning = serverTimes.length ? '' :
+    '<div class="sets-empty">Последний анонс ещё не получен — время взято из ' +
+    (todayTimes.length ? 'локальных наборов блока 09' : 'пресетов') +
+    '. Отправьте анонс в блоке 09, и оно подставится сюда автоматически.</div>';
 
   const typeButtons = SETS_TYPE_OPTIONS.map(type =>
     '<button type="button" class="sets-type-btn' + (type === setsType ? ' active' : '') +
@@ -5381,6 +5399,7 @@ function renderSetsForm() {
             <span class="ann-field-label">Время набора <span class="ann-sub-note">из блока 09</span></span>
             <select id="setsTime" class="ann-input">${timeOptions}</select>
           </label>
+          ${timeWarning}
 
           <label class="ann-field">
             <span class="ann-field-label">Сколько принято</span>
