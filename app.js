@@ -4124,8 +4124,6 @@ function announceTimePair() {
   return { from: $('announceTimeFrom'), to: $('announceTimeTo') };
 }
 
-let announceAutoAddTimer = null;
-
 function announceLoadPresets() {
   try {
     const raw = JSON.parse(localStorage.getItem(ANNOUNCE_PRESETS_KEY) || 'null');
@@ -4213,14 +4211,6 @@ function announceEditPreset(index) {
   from.select();
 }
 
-function announceScheduleAutoAdd() {
-  clearTimeout(announceAutoAddTimer);
-  const { from, to } = announceTimePair();
-  if (!from || !to) return;
-  if (!announceParseTime(from.value) || !announceParseTime(to.value)) return;
-  announceAutoAddTimer = setTimeout(() => announceCommitTime(), 450);
-}
-
 function announceCommitTime() {
   const { from, to } = announceTimePair();
   if (!from || !to) return false;
@@ -4266,7 +4256,6 @@ function announceOnTimeInput(which) {
       from.value = parts[0];
       to.value = parts[1];
       announceUpdateTimeHint();
-      announceScheduleAutoAdd();
       return;
     }
     announceUpdateTimeHint();
@@ -4274,7 +4263,12 @@ function announceOnTimeInput(which) {
   }
   input.value = announceMaskTime(raw);
   announceUpdateTimeHint();
-  announceScheduleAutoAdd();
+  /* Как только начало введено полностью (1400 -> 14:00), сразу
+     переводим курсор в поле «Конец». */
+  if (which === 'from' && /^\d{2}:\d{2}$/.test(input.value) && to && !String(to.value || '').trim()) {
+    to.focus();
+    to.select();
+  }
 }
 
 /* Подсказка под полями времени. */
@@ -4286,17 +4280,17 @@ function announceUpdateTimeHint() {
   const rawTo = to ? String(to.value || '').trim() : '';
   hint.classList.remove('ok', 'err');
   if (!rawFrom && !rawTo) {
-    hint.textContent = 'Введите начало и конец: 1400, пробел, затем 1440 — добавится 14:00 – 14:40.';
+    hint.textContent = 'Введите начало (например, 1400) и конец (1440), затем нажмите «Добавить».';
     return;
   }
   if (/[-–—]\s*$/.test(rawFrom)) {
-    hint.textContent = 'Теперь введите конец, например 1440.';
+    hint.textContent = 'Теперь введите конец, например 1440, и нажмите «Добавить».';
     return;
   }
   if (rawFrom && !rawTo) {
     const pFromOnly = announceParseTime(rawFrom);
     hint.textContent = pFromOnly
-      ? 'Это только начало. Введите конец, например 1440, чтобы набор добавился.'
+      ? 'Это только начало. Введите конец, например 1440, и нажмите «Добавить».'
       : 'Начало: введите время, например 1400.';
     hint.classList.add('err');
     return;
@@ -4318,7 +4312,7 @@ function announceUpdateTimeHint() {
     hint.classList.add('err');
     return;
   }
-  hint.textContent = 'Получится: ' + pFrom + ' – ' + pTo;
+  hint.textContent = 'Нажмите «Добавить», чтобы добавить ' + pFrom + ' – ' + pTo + '.';
   hint.classList.add('ok');
 }
 
@@ -4675,7 +4669,6 @@ function announceEnsureSettings() {
 function renderAdminAnnounce() {
   const root = $('announceRoot');
   if (!root) return;
-  clearTimeout(announceAutoAddTimer);
   if (!announceDate) announceDate = announceIsoTomorrow();
   const authed = !!getAuthToken();
   announceEnsureSettings();
@@ -4823,7 +4816,6 @@ function renderAdminAnnounce() {
   const from = $('announceTimeFrom');
   const to = $('announceTimeTo');
   const addTime = () => {
-    clearTimeout(announceAutoAddTimer);
     announceCommitTime();
   };
   if ($('announceAddTime')) $('announceAddTime').onclick = addTime;
@@ -4836,15 +4828,21 @@ function renderAdminAnnounce() {
       const parsed = announceParseTime(input.value);
       if (parsed && parsed.indexOf(' – ') < 0) input.value = parsed;
       announceUpdateTimeHint();
-      if (which === 'to') {
-        clearTimeout(announceAutoAddTimer);
-        announceCommitTime();
-      }
     };
     input.onkeydown = e => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        clearTimeout(announceAutoAddTimer);
+        /* Enter в «Начале» ведёт в «Конец», Enter в «Конце» = кнопка «Добавить». */
+        if (which === 'from') {
+          const parsed = announceParseTime(input.value);
+          if (parsed && to) {
+            input.value = parsed;
+            announceUpdateTimeHint();
+            to.focus();
+            to.select();
+          }
+          return;
+        }
         announceCommitTime();
       }
       /* Пробел после начала переносит ввод в поле «Конец». */
