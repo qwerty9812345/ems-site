@@ -5353,10 +5353,15 @@ function renderSetsForm() {
     '" data-sets-type="' + escapeHtml(type) + '">' + escapeHtml(type) + '</button>'
   ).join('');
 
-  const timeOptions = times.length
-    ? times.map(value => '<option value="' + escapeHtml(value) + '"' +
-        (value === setsTime ? ' selected' : '') + '>' + escapeHtml(value) + '</option>').join('')
-    : '<option value="">Нет доступных наборов</option>';
+  const timeButtons = times.length
+    ? '<div class="sets-time-row" id="setsTimeRow">' + times.map(value =>
+        '<button type="button" class="sets-time-btn' + (value === setsTime ? ' active' : '') +
+        '" data-sets-time="' + escapeHtml(value) + '" aria-pressed="' + (value === setsTime ? 'true' : 'false') + '">' +
+        '<span class="sets-time-dot" aria-hidden="true"></span>' +
+        '<span class="sets-time-value">' + escapeHtml(value) + '</span>' +
+        '</button>'
+      ).join('') + '</div>'
+    : '<div class="sets-time-empty">Нет доступных наборов</div>';
 
   const groupsHtml = SETS_GROUPS.map(group => {
     const people = setsRoster[group.id] || [];
@@ -5393,10 +5398,10 @@ function renderSetsForm() {
             <div class="sets-type-row">${typeButtons}</div>
           </div>
 
-          <label class="ann-field">
+          <div class="ann-field">
             <span class="ann-field-label">Время набора <span class="ann-sub-note">из блока 09</span></span>
-            <select id="setsTime" class="ann-input">${timeOptions}</select>
-          </label>
+            ${timeButtons}
+          </div>
           ${timeWarning}
 
           <label class="ann-field">
@@ -5449,13 +5454,17 @@ function renderSetsForm() {
     };
   });
 
-  const timeSelect = $('setsTime');
-  if (timeSelect) {
-    timeSelect.onchange = () => {
-      setsTime = timeSelect.value;
+  root.querySelectorAll('[data-sets-time]').forEach(btn => {
+    btn.onclick = () => {
+      setsTime = btn.dataset.setsTime;
+      root.querySelectorAll('[data-sets-time]').forEach(other => {
+        const active = other === btn;
+        other.classList.toggle('active', active);
+        other.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
       setsUpdatePreview();
     };
-  }
+  });
 
   const countInput = $('setsCount');
   if (countInput) {

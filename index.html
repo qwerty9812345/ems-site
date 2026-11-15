@@ -2142,6 +2142,28 @@ a.ph-link:hover {
   background: var(--lime-grad); border-color: transparent; color: #17110b;
   box-shadow: 0 10px 24px rgba(255, 154, 60, .22);
 }
+
+/* Время набора — кастомные пилюли вместо системного выпадающего списка */
+.sets-time-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.sets-time-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: inherit; font-size: 13.5px; font-weight: 800; font-variant-numeric: tabular-nums;
+  cursor: pointer; padding: 10px 16px 10px 13px; border-radius: 12px; transition: .18s;
+  background: rgba(255, 255, 255, .04); border: 1px solid var(--line); color: var(--muted);
+}
+.sets-time-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: rgba(255, 255, 255, .16); transition: .18s;
+}
+.sets-time-btn:hover { color: var(--text); border-color: var(--accent-line); }
+.sets-time-btn:hover .sets-time-dot { background: var(--accent); }
+.sets-time-btn.active {
+  background: var(--lime-grad); border-color: transparent; color: #17110b;
+  box-shadow: 0 10px 24px rgba(255, 154, 60, .22);
+}
+.sets-time-btn.active .sets-time-dot { background: #17110b; }
+.sets-time-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sets-time-empty { font-size: 12.5px; color: var(--muted-2); font-style: italic; }
 .sets-count-row { display: flex; gap: 10px; align-items: center; }
 .sets-count-row .ann-input { max-width: 180px; font-weight: 800; font-size: 16px; }
 .sets-count-note { font-size: 12px; color: var(--muted-2); }
@@ -3744,6 +3766,6 @@ function clearReports() {
 }
     </script>
     <!-- INLINE_SCRIPTS_END -->
-  <script src="app.js?v=0a6f9359" async></script>
+  <script src="app.js?v=f202b212" async></script>
 </body>
 </html>
