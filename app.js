@@ -5244,14 +5244,32 @@ function setsApi(force) {
     .catch(e => ({ ok: false, code: 'network', detail: String((e && e.message) || e) }));
 }
 
+/* Последний анонс читаем публичным GET: время наборов не секрет, а истёкшая
+   сессия не должна подменять его пресетами. POST с action=last остаётся
+   запасным путём для старых развёртываний, где публичного GET ещё нет. */
+async function setsLastAnnounce() {
+  try {
+    const res = await apiFetch('/api/announce?ts=' + Date.now(), {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { accept: 'application/json' }
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && data.ok === true) return data.last || null;
+    }
+  } catch (e) {}
+  const out = await announceApi({ action: 'last' });
+  return out && out.ok && out.last ? out.last : null;
+}
+
 /* Тихо подтягиваем последний анонс при открытии блока 10: если СС
    отправил его с другого устройства, время обновится без перезагрузки. */
 async function setsRefreshLast() {
   if (setsRefreshingLast) return;
   setsRefreshingLast = true;
-  const out = await announceApi({ action: 'last' });
+  const next = await setsLastAnnounce();
   setsRefreshingLast = false;
-  const next = out && out.ok && out.last ? out.last : null;
   if (JSON.stringify(next) === JSON.stringify(setsServerLast)) return;
   setsServerLast = next;
   renderSetsForm();
@@ -5265,12 +5283,23 @@ async function setsLoadRoster(force) {
   if (status) status.textContent = 'Загрузка данных из таблицы…';
 
   /* Составы и время последнего анонса грузим параллельно. */
-  const [out, lastOut] = await Promise.all([
+  const [out, last] = await Promise.all([
     setsApi(!!force),
-    announceApi({ action: 'last' })
+    setsLastAnnounce()
   ]);
   setsLoading = false;
-  setsServerLast = lastOut && lastOut.ok && lastOut.last ? lastOut.last : null;
+  setsServerLast = last || null;
+
+  /* Токен живёт 24 часа: если сервер его уже не принимает, честно просим
+     войти заново, а не показываем пустые составы и время из пресетов. */
+  if (out && out.code === 'unauthorized') {
+    setAuthToken('');
+    setsLoaded = false;
+    setsLoadError = '';
+    renderSetsForm();
+    toast('Сессия истекла', 'Войдите заново — секрет сервера.');
+    return;
+  }
 
   if (out && out.ok === true) {
     setsRoster = {
@@ -5335,18 +5364,20 @@ function renderSetsForm() {
     return;
   }
 
-  const times = setsTimeOptions();
-  if (!setsTime || times.indexOf(setsTime) < 0) setsTime = times[0] || '';
   const serverTimes = setsServerTimes();
   const todayTimes = announceSetsForDate(setsTodayIso());
+  const times = setsTimeOptions();
+  /* Автовыбор — только для настоящего анонса. Пресеты не должны выглядеть
+     как присланное время: иначе можно отправить в Discord чужие часы. */
+  const fromAnnounce = !!(serverTimes.length || todayTimes.length);
+  if (!setsTime || times.indexOf(setsTime) < 0) setsTime = fromAnnounce ? (times[0] || '') : '';
   const announceDate = setsServerLast && setsServerLast.date ? String(setsServerLast.date) : '';
   const timeSource = serverTimes.length
     ? ('анонс' + (announceDate ? ' от ' + announceDate : ''))
     : (todayTimes.length ? 'наборы из блока 09' : 'пресеты — анонса нет');
-  const timeWarning = serverTimes.length ? '' :
-    '<div class="sets-empty">Последний анонс ещё не получен — время взято из ' +
-    (todayTimes.length ? 'локальных наборов блока 09' : 'пресетов') +
-    '. Отправьте анонс в блоке 09, и оно подставится сюда автоматически.</div>';
+  const timeWarning = serverTimes.length ? '' : (todayTimes.length
+    ? '<div class="sets-empty">Анонс ещё не пришёл с сервера — время взято из локальной копии блока 09. Нажмите «Обновить», чтобы подтянуть его с сервера.</div>'
+    : '<div class="sets-empty">Анонса нет — ниже только пресеты, время само не подставляется. Выберите набор вручную или отправьте анонс в блоке 09.</div>');
 
   const typeButtons = SETS_TYPE_OPTIONS.map(type =>
     '<button type="button" class="sets-type-btn' + (type === setsType ? ' active' : '') +
@@ -5525,7 +5556,7 @@ async function setsSendNow() {
     return;
   }
   if (!setsTime) {
-    if (status) status.textContent = 'Нет времени набора: добавьте его в блоке 09.';
+    if (status) status.textContent = 'Выберите время набора (или отправьте анонс в блоке 09).';
     return;
   }
 
